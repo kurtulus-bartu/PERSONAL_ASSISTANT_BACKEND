@@ -7,12 +7,16 @@ import os
 from models import (
     FundInvestment,
     FundPrice,
+    FundDetail,
     PortfolioSummary,
     GeminiRequest,
-    GeminiResponse
+    GeminiResponse,
+    PortfolioHistoryResponse,
+    PortfolioRange
 )
 from tefas_crawler import TEFASCrawler
 from gemini_service import GeminiService
+from supabase_service import SupabaseService
 
 # FastAPI app
 app = FastAPI(
@@ -32,6 +36,7 @@ app.add_middleware(
 
 # Servisler
 tefas_crawler = TEFASCrawler()
+supabase_service = SupabaseService(tefas_crawler=tefas_crawler)
 
 
 def get_gemini_service(api_key: str) -> GeminiService:
@@ -141,17 +146,17 @@ async def calculate_portfolio(investments: List[FundInvestment]):
             total_investment += investment.investment_amount
             total_current_value += result['current_value']
 
-            funds_detail.append({
-                "fund_code": result['fund_code'],
-                "fund_name": result['fund_name'],
-                "investment_amount": investment.investment_amount,
-                "current_value": result['current_value'],
-                "profit_loss": result['profit_loss'],
-                "profit_loss_percent": result['profit_loss_percent'],
-                "purchase_price": investment.purchase_price,
-                "current_price": result['current_price'],
-                "units": result['units']
-            })
+            funds_detail.append(FundDetail(
+                fund_code=result['fund_code'],
+                fund_name=result['fund_name'],
+                investment_amount=investment.investment_amount,
+                current_value=result['current_value'],
+                profit_loss=result['profit_loss'],
+                profit_loss_percent=result['profit_loss_percent'],
+                purchase_price=investment.purchase_price,
+                current_price=result['current_price'],
+                units=result['units']
+            ))
 
         total_profit_loss = total_current_value - total_investment
         profit_loss_percent = (total_profit_loss / total_investment * 100) if total_investment > 0 else 0
@@ -159,7 +164,7 @@ async def calculate_portfolio(investments: List[FundInvestment]):
         # Günlük değişim hesaplama (basitleştirilmiş)
         daily_change = 0  # Bu kısmı geçmiş verilerle daha detaylı hesaplayabilirsin
 
-        return PortfolioSummary(
+        summary = PortfolioSummary(
             total_investment=round(total_investment, 2),
             current_value=round(total_current_value, 2),
             total_profit_loss=round(total_profit_loss, 2),
@@ -167,6 +172,24 @@ async def calculate_portfolio(investments: List[FundInvestment]):
             daily_change=daily_change,
             funds=funds_detail
         )
+        await supabase_service.record_portfolio_snapshot(summary)
+        return summary
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/portfolio/history", response_model=PortfolioHistoryResponse)
+async def portfolio_history(
+    range: PortfolioRange = PortfolioRange.month,
+    fund_code: Optional[str] = None
+):
+    """
+    Supabase üzerinde tutulan portföy geçmişini getirir.
+    """
+    try:
+        return await supabase_service.get_portfolio_history(range, fund_code)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

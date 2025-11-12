@@ -21,3 +21,6 @@ python-multipart==0.0.20
 
 # Date/Time
 python-dateutil==2.9.0.post0
+
+# Supabase
+supabase==2.6.0

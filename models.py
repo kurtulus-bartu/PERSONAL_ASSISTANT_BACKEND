@@ -1,3 +1,4 @@
+from enum import Enum
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
@@ -56,3 +57,48 @@ class GeminiResponse(BaseModel):
     """Gemini API yanıtı"""
     response: str = Field(..., description="AI yanıtı")
     timestamp: datetime = Field(default_factory=datetime.now)
+
+
+# -------------------------------------------------------------------------
+# Supabase / History modelleri
+# -------------------------------------------------------------------------
+
+
+class PortfolioRange(str, Enum):
+    day = "day"
+    week = "week"
+    month = "month"
+    year = "year"
+
+
+class PortfolioHistoryPoint(BaseModel):
+    timestamp: datetime
+    total_value: float
+    fund_code: Optional[str] = None
+
+
+class FundReference(BaseModel):
+    fund_code: str
+    fund_name: Optional[str] = None
+
+
+class FundPerformance(BaseModel):
+    fund_code: str
+    fund_name: Optional[str] = None
+    latest_value: float
+    daily_change: float
+    weekly_change: float
+    monthly_change: float
+    yearly_change: float
+
+
+class PortfolioHistoryResponse(BaseModel):
+    range: PortfolioRange
+    fund_code: Optional[str] = None
+    start_date: datetime
+    end_date: datetime
+    points: List[PortfolioHistoryPoint] = Field(default_factory=list)
+    change_value: float
+    change_percent: float
+    available_funds: List[FundReference] = Field(default_factory=list)
+    performances: List[FundPerformance] = Field(default_factory=list)

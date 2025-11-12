@@ -182,6 +182,48 @@ let baseURL = "https://your-backend.onrender.com"
 let url = URL(string: "\(baseURL)/api/funds/price/TQE")!
 ```
 
+## Supabase (Portföy geçmişi)
+
+Finans ekranındaki günlük/haftalık grafikler Supabase üzerinde tutulan `fund_daily_values` tablosundan
+gelir.
+
+### Ortam değişkenleri
+
+`.env` dosyanıza veya Render paneline aşağıdakileri ekleyin:
+
+```
+SUPABASE_URL=https://<project>.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=<service_role_key>
+```
+
+### Tablo şeması
+
+Aşağıdaki SQL script'i tabloyu oluşturur:
+
+```sql
+create table if not exists fund_daily_values (
+    id uuid primary key default gen_random_uuid(),
+    snapshot_date date not null,
+    recorded_at timestamptz not null default now(),
+    fund_code text not null,
+    fund_name text,
+    current_value numeric not null,
+    investment_amount numeric,
+    profit_loss numeric,
+    profit_loss_percent numeric,
+    current_price numeric,
+    units numeric,
+    inserted_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+);
+
+create unique index if not exists fund_daily_values_unique_idx
+    on fund_daily_values (fund_code, snapshot_date);
+```
+
+> Backend her kar/zarar hesaplamasında fonlar + `TOTAL` satırı için upsert gerçekleştirir.
+> Eksik günler, TEFAS verisiyle otomatik doldurulur.
+
 ## Güvenlik
 
 - API anahtarlarını **asla** kod içinde tutmayın
