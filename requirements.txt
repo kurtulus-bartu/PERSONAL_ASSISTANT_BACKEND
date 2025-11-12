@@ -4,7 +4,8 @@ uvicorn[standard]==0.34.0
 pydantic==2.10.3
 
 # TEFAS Data
-tefas-crawler==0.1
+tefas-crawler==0.5.0
+pandas>=2.0.0
 
 # Web Scraping (fallback için)
 requests==2.32.3
