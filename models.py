@@ -22,6 +22,19 @@ class FundPrice(BaseModel):
     change_percent: Optional[float] = None
 
 
+class FundDetail(BaseModel):
+    """Fon detay bilgisi"""
+    fund_code: str
+    fund_name: str
+    investment_amount: float
+    current_value: float
+    profit_loss: float
+    profit_loss_percent: float
+    purchase_price: float
+    current_price: float
+    units: float
+
+
 class PortfolioSummary(BaseModel):
     """Portföy özeti"""
     total_investment: float = Field(..., description="Toplam yatırım")
@@ -29,7 +42,7 @@ class PortfolioSummary(BaseModel):
     total_profit_loss: float = Field(..., description="Toplam kar/zarar")
     profit_loss_percent: float = Field(..., description="Kar/zarar yüzdesi")
     daily_change: float = Field(..., description="Günlük değişim")
-    funds: List[dict] = Field(default_factory=list, description="Fonların detaylı bilgisi")
+    funds: List[FundDetail] = Field(default_factory=list, description="Fonların detaylı bilgisi")
 
 
 class GeminiRequest(BaseModel):

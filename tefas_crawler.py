@@ -28,29 +28,41 @@ class TEFASCrawler:
         """
         try:
             if date is None:
-                date_str = datetime.now().strftime("%Y-%m-%d")
+                # Bugünden başlayarak son 7 günü kontrol et
+                end_date = datetime.now()
+                start_date = end_date - timedelta(days=7)
+
+                data = self.crawler.fetch(
+                    start=start_date.strftime("%Y-%m-%d"),
+                    end=end_date.strftime("%Y-%m-%d"),
+                    name=fund_code.upper()
+                )
+
+                if data.empty:
+                    print(f"TEFAS: {fund_code} fonu için veri bulunamadı")
+                    return None
+
+                # En güncel veriyi al (son satır)
+                row = data.iloc[-1]
             else:
-                date_str = date
+                # Belirli bir tarih istendiğinde
+                data = self.crawler.fetch(
+                    start=date,
+                    end=date,
+                    name=fund_code.upper()
+                )
 
-            # tefas-crawler v0.5.0 API: fetch(start, end, name, columns, kind)
-            data = self.crawler.fetch(
-                start=date_str,
-                end=date_str,
-                name=fund_code.upper()
-            )
+                if data.empty:
+                    print(f"TEFAS: {fund_code} fonu için {date} tarihinde veri bulunamadı")
+                    return None
 
-            if data.empty:
-                print(f"TEFAS: {fund_code} fonu için veri bulunamadı")
-                return None
-
-            # İlk (ve tek) satırı al
-            row = data.iloc[0]
+                row = data.iloc[0]
 
             return {
                 'fund_code': fund_code.upper(),
                 'fund_name': row.get('title', ''),
                 'price': float(row.get('price', 0)),
-                'date': str(row.get('date', date_str)),
+                'date': str(row.get('date', '')),
                 'total_value': float(row.get('market_cap', 0)),
                 'number_of_shares': int(row.get('number_of_shares', 0)),
                 'number_of_investors': int(row.get('number_of_investors', 0))
