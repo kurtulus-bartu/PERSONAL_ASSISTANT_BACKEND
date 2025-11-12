@@ -1,83 +1,18 @@
-import requests
-from bs4 import BeautifulSoup
+from tefas import Crawler
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 import json
-import time
 
 
 class TEFASCrawler:
-    """TEFAS (Türkiye Elektronik Fon Alım Satım Platformu) veri çekici"""
+    """TEFAS (Türkiye Elektronik Fon Alım Satım Platformu) veri çekici
 
-    BASE_URL = "https://www.tefas.gov.tr"
-    FUND_DETAIL_URL = f"{BASE_URL}/FonKartlari.aspx"
-    API_URL = f"{BASE_URL}/api/DB/BindHistoryInfo"
+    tefas-crawler paketi kullanılarak TEFAS verilerine erişim sağlar.
+    """
 
     def __init__(self):
-        self.session = requests.Session()
-        self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Referer': 'https://www.tefas.gov.tr/FonAnaliz.aspx',
-            'Origin': 'https://www.tefas.gov.tr',
-            'Connection': 'keep-alive',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'same-origin'
-        })
-        self.last_request_time = 0
-        self.min_request_interval = 0.5  # Minimum 500ms between requests
-
-    def _rate_limit(self):
-        """Rate limiting - istekler arasında minimum bekleme süresi"""
-        current_time = time.time()
-        time_since_last_request = current_time - self.last_request_time
-        if time_since_last_request < self.min_request_interval:
-            time.sleep(self.min_request_interval - time_since_last_request)
-        self.last_request_time = time.time()
-
-    def _safe_request(self, url: str, params: dict, timeout: int = 10) -> Optional[List[Dict]]:
-        """Güvenli HTTP request - JSON parse hatalarını yakalar"""
-        try:
-            self._rate_limit()
-
-            response = self.session.get(url, params=params, timeout=timeout)
-            response.raise_for_status()
-
-            # Response boş mu kontrol et
-            if not response.text or response.text.strip() == '':
-                print(f"TEFAS API boş yanıt döndürdü")
-                return None
-
-            # HTML hatası mı kontrol et
-            if response.text.strip().startswith('<'):
-                print(f"TEFAS API HTML döndürdü (muhtemelen hata sayfası)")
-                return None
-
-            # JSON parse et
-            try:
-                data = response.json()
-                if isinstance(data, list):
-                    return data
-                else:
-                    print(f"TEFAS API beklenmeyen format döndürdü: {type(data)}")
-                    return None
-            except json.JSONDecodeError as e:
-                print(f"TEFAS JSON parse hatası: {str(e)}")
-                print(f"Response içeriği (ilk 200 karakter): {response.text[:200]}")
-                return None
-
-        except requests.Timeout:
-            print(f"TEFAS API timeout")
-            return None
-        except requests.RequestException as e:
-            print(f"TEFAS API istek hatası: {str(e)}")
-            return None
-        except Exception as e:
-            print(f"TEFAS beklenmeyen hata: {str(e)}")
-            return None
+        """TEFAS Crawler'ı başlat"""
+        self.crawler = Crawler()
 
     def get_fund_price(self, fund_code: str, date: Optional[str] = None) -> Optional[Dict]:
         """
@@ -92,40 +27,35 @@ class TEFASCrawler:
         """
         try:
             if date is None:
-                date = datetime.now().strftime("%d.%m.%Y")
+                date_str = datetime.now().strftime("%d-%m-%Y")
             else:
-                # Convert YYYY-MM-DD to DD.MM.YYYY (TEFAS format)
+                # Convert YYYY-MM-DD to DD-MM-YYYY
                 date_obj = datetime.strptime(date, "%Y-%m-%d")
-                date = date_obj.strftime("%d.%m.%Y")
+                date_str = date_obj.strftime("%d-%m-%Y")
 
-            # TEFAS API endpoint
-            params = {
-                'fontip': 'YAT',
-                'sfontur': '',
-                'fonkod': fund_code.upper(),
-                'fongrup': '',
-                'bastarih': date,
-                'bittarih': date,
-                'fonturkod': '',
-                'fonunvantip': ''
+            # tefas-crawler ile veri çek
+            data = self.crawler.fetch(
+                start=date_str,
+                end=date_str,
+                name=fund_code.upper()
+            )
+
+            if data.empty:
+                print(f"TEFAS: {fund_code} fonu için veri bulunamadı")
+                return None
+
+            # İlk satırı al (tek gün sorgusu için tek satır olacak)
+            row = data.iloc[0]
+
+            return {
+                'fund_code': fund_code.upper(),
+                'fund_name': row.get('title', ''),
+                'price': float(row.get('price', 0)),
+                'date': row.get('date', date_str),
+                'total_value': float(row.get('marketcap', 0)),
+                'number_of_shares': int(row.get('number_of_shares', 0)),
+                'number_of_investors': int(row.get('number_of_investors', 0))
             }
-
-            data = self._safe_request(self.API_URL, params)
-
-            if data and len(data) > 0:
-                fund_data = data[0]
-
-                return {
-                    'fund_code': fund_code.upper(),
-                    'fund_name': fund_data.get('FONUNVAN', ''),
-                    'price': float(fund_data.get('FIYAT', 0)),
-                    'date': fund_data.get('TARIH', date),
-                    'total_value': float(fund_data.get('PORTFOYBUYUKLUK', 0)),
-                    'number_of_shares': int(fund_data.get('TEDPAYSAYISI', 0)),
-                    'number_of_investors': int(fund_data.get('KISISAYISI', 0))
-                }
-
-            return None
 
         except Exception as e:
             print(f"TEFAS veri çekme hatası: {str(e)}")
@@ -146,29 +76,24 @@ class TEFASCrawler:
             end_date = datetime.now()
             start_date = end_date - timedelta(days=days)
 
-            params = {
-                'fontip': 'YAT',
-                'sfontur': '',
-                'fonkod': fund_code.upper(),
-                'fongrup': '',
-                'bastarih': start_date.strftime("%d.%m.%Y"),
-                'bittarih': end_date.strftime("%d.%m.%Y"),
-                'fonturkod': '',
-                'fonunvantip': ''
-            }
+            # tefas-crawler ile veri çek
+            data = self.crawler.fetch(
+                start=start_date.strftime("%d-%m-%Y"),
+                end=end_date.strftime("%d-%m-%Y"),
+                name=fund_code.upper()
+            )
 
-            data = self._safe_request(self.API_URL, params)
-
-            if not data:
+            if data.empty:
+                print(f"TEFAS: {fund_code} fonu için geçmiş veri bulunamadı")
                 return []
 
             history = []
-            for item in data:
+            for _, row in data.iterrows():
                 history.append({
-                    'date': item.get('TARIH', ''),
-                    'price': float(item.get('FIYAT', 0)),
-                    'total_value': float(item.get('PORTFOYBUYUKLUK', 0)),
-                    'number_of_shares': int(item.get('TEDPAYSAYISI', 0))
+                    'date': row.get('date', ''),
+                    'price': float(row.get('price', 0)),
+                    'total_value': float(row.get('marketcap', 0)),
+                    'number_of_shares': int(row.get('number_of_shares', 0))
                 })
 
             return history
@@ -182,50 +107,39 @@ class TEFASCrawler:
         Fon arama
 
         Args:
-            query: Arama terimi (boş ise tüm fonları listeler)
+            query: Arama terimi (boş ise popüler fonları listeler)
 
         Returns:
             Fon listesi
         """
         try:
-            # Tüm fonları getir (bugünün verisi)
-            today = datetime.now().strftime("%d.%m.%Y")
+            # Bugünün tarihini al
+            today = datetime.now().strftime("%d-%m-%Y")
 
-            params = {
-                'fontip': 'YAT',
-                'sfontur': '',
-                'fonkod': '',
-                'fongrup': '',
-                'bastarih': today,
-                'bittarih': today,
-                'fonturkod': '',
-                'fonunvantip': ''
-            }
+            # Eğer query varsa o fonu ara
+            if query:
+                data = self.crawler.fetch(
+                    start=today,
+                    end=today,
+                    name=query.upper()
+                )
+            else:
+                # Query yoksa popüler fonları döndür
+                popular_funds = ['TQE', 'GAH', 'AKE', 'YKT', 'IPG', 'TKE', 'AYE', 'IYE']
+                return self._get_multiple_funds(popular_funds, today)
 
-            data = self._safe_request(self.API_URL, params, timeout=15)
-
-            if not data:
-                print("TEFAS fon listesi alınamadı, örnek veri döndürülüyor")
-                # Fallback: Popüler fonların örnek listesi
+            if data.empty:
+                print(f"TEFAS: '{query}' araması için sonuç bulunamadı")
                 return self._get_sample_funds(query)
 
             funds = []
-            for item in data:
-                fund_code = item.get('FONKODU', '')
-                fund_name = item.get('FONUNVAN', '')
-
-                # Arama terimi varsa filtrele
-                if query:
-                    query_upper = query.upper()
-                    if query_upper not in fund_code.upper() and query_upper not in fund_name.upper():
-                        continue
-
+            for _, row in data.iterrows():
                 funds.append({
-                    'fund_code': fund_code,
-                    'fund_name': fund_name,
-                    'price': float(item.get('FIYAT', 0)),
-                    'date': item.get('TARIH', ''),
-                    'fund_type': item.get('FONTIPI', '')
+                    'fund_code': row.get('code', ''),
+                    'fund_name': row.get('title', ''),
+                    'price': float(row.get('price', 0)),
+                    'date': row.get('date', today),
+                    'fund_type': row.get('type', 'Yatırım Fonu')
                 })
 
             return funds
@@ -233,6 +147,29 @@ class TEFASCrawler:
         except Exception as e:
             print(f"TEFAS fon arama hatası: {str(e)}")
             return self._get_sample_funds(query)
+
+    def _get_multiple_funds(self, fund_codes: List[str], date: str) -> List[Dict]:
+        """Birden fazla fon için veri çek"""
+        funds = []
+        for code in fund_codes:
+            try:
+                data = self.crawler.fetch(
+                    start=date,
+                    end=date,
+                    name=code
+                )
+                if not data.empty:
+                    row = data.iloc[0]
+                    funds.append({
+                        'fund_code': row.get('code', code),
+                        'fund_name': row.get('title', ''),
+                        'price': float(row.get('price', 0)),
+                        'date': row.get('date', date),
+                        'fund_type': row.get('type', 'Yatırım Fonu')
+                    })
+            except:
+                continue
+        return funds if funds else self._get_sample_funds("")
 
     def _get_sample_funds(self, query: str = "") -> List[Dict]:
         """Örnek fon listesi - TEFAS erişilemediğinde fallback"""
