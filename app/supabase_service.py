@@ -1,6 +1,6 @@
 import asyncio
 import os
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
 from fastapi import HTTPException
@@ -56,8 +56,8 @@ class SupabaseService:
             return PortfolioHistoryResponse(
                 range=range_value,
                 fund_code=None if selected_code == TOTAL_FUND_CODE else selected_code,
-                start_date=datetime.combine(start_date, datetime.min.time()),
-                end_date=datetime.combine(end_date, datetime.min.time()),
+                start_date=self._as_utc_datetime(start_date),
+                end_date=self._as_utc_datetime(end_date),
                 points=[],
                 change_value=0,
                 change_percent=0,
@@ -79,8 +79,8 @@ class SupabaseService:
             return PortfolioHistoryResponse(
                 range=range_value,
                 fund_code=None if selected_code == TOTAL_FUND_CODE else selected_code,
-                start_date=datetime.combine(start_date, datetime.min.time()),
-                end_date=datetime.combine(end_date, datetime.min.time()),
+                start_date=self._as_utc_datetime(start_date),
+                end_date=self._as_utc_datetime(end_date),
                 points=[],
                 change_value=0,
                 change_percent=0,
@@ -98,9 +98,8 @@ class SupabaseService:
 
         points = [
             PortfolioHistoryPoint(
-                timestamp=datetime.combine(
-                    datetime.fromisoformat(row["snapshot_date"]).date(),
-                    datetime.min.time()
+                timestamp=self._as_utc_datetime(
+                    datetime.fromisoformat(row["snapshot_date"]).date()
                 ),
                 total_value=row["current_value"],
                 fund_code=row["fund_code"]
@@ -116,8 +115,8 @@ class SupabaseService:
         return PortfolioHistoryResponse(
             range=range_value,
             fund_code=None if selected_code == TOTAL_FUND_CODE else selected_code,
-            start_date=datetime.combine(start_date, datetime.min.time()),
-            end_date=datetime.combine(end_date, datetime.min.time()),
+            start_date=self._as_utc_datetime(start_date),
+            end_date=self._as_utc_datetime(end_date),
             points=points,
             change_value=change_value,
             change_percent=change_percent,
@@ -130,7 +129,7 @@ class SupabaseService:
     # -------------------------------------------------------------------------
 
     def _record_snapshot_sync(self, summary: PortfolioSummary) -> None:
-        recorded_at = datetime.utcnow()
+        recorded_at = datetime.now(timezone.utc)
         snapshot_date = recorded_at.date().isoformat()
 
         rows = [
@@ -201,6 +200,10 @@ class SupabaseService:
         start = today - timedelta(days=days - 1) if days > 1 else today
         return start, today
 
+    @staticmethod
+    def _as_utc_datetime(day: date) -> datetime:
+        return datetime.combine(day, datetime.min.time()).replace(tzinfo=timezone.utc)
+
     def _fetch_rows(
         self,
         start_date: date,
@@ -258,7 +261,7 @@ class SupabaseService:
 
             payload = {
                 "snapshot_date": target_date.isoformat(),
-                "recorded_at": datetime.utcnow().isoformat(),
+                "recorded_at": datetime.now(timezone.utc).isoformat(),
                 "fund_code": TOTAL_FUND_CODE,
                 "fund_name": "Toplam Portföy",
                 "current_value": round(total_value, 2),
@@ -303,7 +306,7 @@ class SupabaseService:
 
         payload = {
             "snapshot_date": target_date.isoformat(),
-            "recorded_at": datetime.utcnow().isoformat(),
+            "recorded_at": datetime.now(timezone.utc).isoformat(),
             "fund_code": fund_code,
             "fund_name": fund_name,
             "current_value": current_value,
