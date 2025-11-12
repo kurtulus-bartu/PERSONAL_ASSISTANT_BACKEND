@@ -4,15 +4,15 @@ from typing import List, Optional
 from datetime import datetime
 import os
 
-from .models import (
+from models import (
     FundInvestment,
     FundPrice,
     PortfolioSummary,
     GeminiRequest,
     GeminiResponse
 )
-from .tefas_crawler import TEFASCrawler
-from .gemini_service import GeminiService
+from tefas_crawler import TEFASCrawler
+from gemini_service import GeminiService
 
 # FastAPI app
 app = FastAPI(

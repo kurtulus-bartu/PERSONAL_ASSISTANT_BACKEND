@@ -2,12 +2,13 @@ from tefas import Crawler
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 import json
+import pandas as pd
 
 
 class TEFASCrawler:
     """TEFAS (Türkiye Elektronik Fon Alım Satım Platformu) veri çekici
 
-    tefas-crawler paketi kullanılarak TEFAS verilerine erişim sağlar.
+    tefas-crawler v0.5.0 paketi kullanılarak TEFAS verilerine erişim sağlar.
     """
 
     def __init__(self):
@@ -27,13 +28,11 @@ class TEFASCrawler:
         """
         try:
             if date is None:
-                date_str = datetime.now().strftime("%d-%m-%Y")
+                date_str = datetime.now().strftime("%Y-%m-%d")
             else:
-                # Convert YYYY-MM-DD to DD-MM-YYYY
-                date_obj = datetime.strptime(date, "%Y-%m-%d")
-                date_str = date_obj.strftime("%d-%m-%Y")
+                date_str = date
 
-            # tefas-crawler ile veri çek
+            # tefas-crawler v0.5.0 API: fetch(start, end, name, columns, kind)
             data = self.crawler.fetch(
                 start=date_str,
                 end=date_str,
@@ -44,15 +43,15 @@ class TEFASCrawler:
                 print(f"TEFAS: {fund_code} fonu için veri bulunamadı")
                 return None
 
-            # İlk satırı al (tek gün sorgusu için tek satır olacak)
+            # İlk (ve tek) satırı al
             row = data.iloc[0]
 
             return {
                 'fund_code': fund_code.upper(),
                 'fund_name': row.get('title', ''),
                 'price': float(row.get('price', 0)),
-                'date': row.get('date', date_str),
-                'total_value': float(row.get('marketcap', 0)),
+                'date': str(row.get('date', date_str)),
+                'total_value': float(row.get('market_cap', 0)),
                 'number_of_shares': int(row.get('number_of_shares', 0)),
                 'number_of_investors': int(row.get('number_of_investors', 0))
             }
@@ -76,10 +75,10 @@ class TEFASCrawler:
             end_date = datetime.now()
             start_date = end_date - timedelta(days=days)
 
-            # tefas-crawler ile veri çek
+            # tefas-crawler v0.5.0 API
             data = self.crawler.fetch(
-                start=start_date.strftime("%d-%m-%Y"),
-                end=end_date.strftime("%d-%m-%Y"),
+                start=start_date.strftime("%Y-%m-%d"),
+                end=end_date.strftime("%Y-%m-%d"),
                 name=fund_code.upper()
             )
 
@@ -90,9 +89,9 @@ class TEFASCrawler:
             history = []
             for _, row in data.iterrows():
                 history.append({
-                    'date': row.get('date', ''),
+                    'date': str(row.get('date', '')),
                     'price': float(row.get('price', 0)),
-                    'total_value': float(row.get('marketcap', 0)),
+                    'total_value': float(row.get('market_cap', 0)),
                     'number_of_shares': int(row.get('number_of_shares', 0))
                 })
 
@@ -113,72 +112,66 @@ class TEFASCrawler:
             Fon listesi
         """
         try:
-            # Bugünün tarihini al
-            today = datetime.now().strftime("%d-%m-%Y")
+            today = datetime.now().strftime("%Y-%m-%d")
 
-            # Eğer query varsa o fonu ara
             if query:
+                # Sorgu varsa o fonu çek
                 data = self.crawler.fetch(
                     start=today,
                     end=today,
                     name=query.upper()
                 )
-            else:
-                # Query yoksa popüler fonları döndür
-                popular_funds = ['TQE', 'GAH', 'AKE', 'YKT', 'IPG', 'TKE', 'AYE', 'IYE']
-                return self._get_multiple_funds(popular_funds, today)
 
-            if data.empty:
-                print(f"TEFAS: '{query}' araması için sonuç bulunamadı")
-                return self._get_sample_funds(query)
+                if data.empty:
+                    print(f"TEFAS: '{query}' araması için sonuç bulunamadı")
+                    return self._get_sample_funds(query)
 
-            funds = []
-            for _, row in data.iterrows():
-                funds.append({
-                    'fund_code': row.get('code', ''),
+                # En son veriyi al
+                row = data.iloc[0]
+
+                return [{
+                    'fund_code': row.get('code', query.upper()),
                     'fund_name': row.get('title', ''),
                     'price': float(row.get('price', 0)),
-                    'date': row.get('date', today),
-                    'fund_type': row.get('type', 'Yatırım Fonu')
-                })
+                    'date': str(row.get('date', today)),
+                    'fund_type': 'Yatırım Fonu'
+                }]
+            else:
+                # Query yoksa tüm fonları çek
+                data = self.crawler.fetch(
+                    start=today,
+                    end=today
+                )
 
-            return funds
+                if data.empty:
+                    print("TEFAS: Tüm fonlar için veri bulunamadı")
+                    return self._get_sample_funds("")
+
+                # İlk 20 fonu döndür
+                funds = []
+                for _, row in data.head(20).iterrows():
+                    funds.append({
+                        'fund_code': row.get('code', ''),
+                        'fund_name': row.get('title', ''),
+                        'price': float(row.get('price', 0)),
+                        'date': str(row.get('date', today)),
+                        'fund_type': 'Yatırım Fonu'
+                    })
+
+                return funds
 
         except Exception as e:
             print(f"TEFAS fon arama hatası: {str(e)}")
             return self._get_sample_funds(query)
 
-    def _get_multiple_funds(self, fund_codes: List[str], date: str) -> List[Dict]:
-        """Birden fazla fon için veri çek"""
-        funds = []
-        for code in fund_codes:
-            try:
-                data = self.crawler.fetch(
-                    start=date,
-                    end=date,
-                    name=code
-                )
-                if not data.empty:
-                    row = data.iloc[0]
-                    funds.append({
-                        'fund_code': row.get('code', code),
-                        'fund_name': row.get('title', ''),
-                        'price': float(row.get('price', 0)),
-                        'date': row.get('date', date),
-                        'fund_type': row.get('type', 'Yatırım Fonu')
-                    })
-            except:
-                continue
-        return funds if funds else self._get_sample_funds("")
-
     def _get_sample_funds(self, query: str = "") -> List[Dict]:
         """Örnek fon listesi - TEFAS erişilemediğinde fallback"""
         sample_funds = [
-            {'fund_code': 'TQE', 'fund_name': 'Tacirler Portföy Değişken Fon', 'price': 0.050000, 'date': datetime.now().strftime("%d.%m.%Y"), 'fund_type': 'Değişken Fon'},
-            {'fund_code': 'GAH', 'fund_name': 'Garanti Portföy Altın Fonu', 'price': 0.042000, 'date': datetime.now().strftime("%d.%m.%Y"), 'fund_type': 'Değişken Fon'},
-            {'fund_code': 'AKE', 'fund_name': 'Ak Portföy Eurobond Dolar Fonu', 'price': 0.015000, 'date': datetime.now().strftime("%d.%m.%Y"), 'fund_type': 'Borçlanma Araçları Fonu'},
-            {'fund_code': 'YKT', 'fund_name': 'Yapı Kredi Portföy Teknoloji Sektörü Fonu', 'price': 0.025000, 'date': datetime.now().strftime("%d.%m.%Y"), 'fund_type': 'Hisse Senedi Fonu'},
-            {'fund_code': 'IPG', 'fund_name': 'İş Portföy Gelişen Ülkeler Fonu', 'price': 0.018000, 'date': datetime.now().strftime("%d.%m.%Y"), 'fund_type': 'Hisse Senedi Fonu'},
+            {'fund_code': 'TQE', 'fund_name': 'Tacirler Portföy Değişken Fon', 'price': 0.050000, 'date': datetime.now().strftime("%Y-%m-%d"), 'fund_type': 'Değişken Fon'},
+            {'fund_code': 'GAH', 'fund_name': 'Garanti Portföy Altın Fonu', 'price': 0.042000, 'date': datetime.now().strftime("%Y-%m-%d"), 'fund_type': 'Değişken Fon'},
+            {'fund_code': 'AKE', 'fund_name': 'Ak Portföy Eurobond Dolar Fonu', 'price': 0.015000, 'date': datetime.now().strftime("%Y-%m-%d"), 'fund_type': 'Borçlanma Araçları Fonu'},
+            {'fund_code': 'YKT', 'fund_name': 'Yapı Kredi Portföy Teknoloji Sektörü Fonu', 'price': 0.025000, 'date': datetime.now().strftime("%Y-%m-%d"), 'fund_type': 'Hisse Senedi Fonu'},
+            {'fund_code': 'IPG', 'fund_name': 'İş Portföy Gelişen Ülkeler Fonu', 'price': 0.018000, 'date': datetime.now().strftime("%Y-%m-%d"), 'fund_type': 'Hisse Senedi Fonu'},
         ]
 
         if query:
@@ -250,18 +243,37 @@ class TEFASCrawler:
 if __name__ == "__main__":
     crawler = TEFASCrawler()
 
+    print("=" * 80)
+    print("TEFAS Crawler v0.5.0 Test")
+    print("=" * 80)
+
     # Örnek: TQE fonu fiyatını getir
-    print("TQE Fon Fiyatı:")
+    print("\n1. TQE Fon Fiyatı (Bugün):")
     price = crawler.get_fund_price("TQE")
     print(json.dumps(price, indent=2, ensure_ascii=False))
 
+    # Örnek: Belirli bir tarih
+    print("\n2. TQE Fon Fiyatı (2025-01-01):")
+    price_date = crawler.get_fund_price("TQE", "2025-01-01")
+    print(json.dumps(price_date, indent=2, ensure_ascii=False))
+
     # Örnek: Fon arama
-    print("\nFon Arama (YKT):")
+    print("\n3. Fon Arama (YKT):")
     funds = crawler.search_funds("YKT")
-    print(json.dumps(funds[:3], indent=2, ensure_ascii=False))
+    print(json.dumps(funds, indent=2, ensure_ascii=False))
+
+    # Örnek: Tüm fonlar
+    print("\n4. Tüm Fonlar (İlk 5):")
+    all_funds = crawler.search_funds("")
+    print(json.dumps(all_funds[:5], indent=2, ensure_ascii=False))
+
+    # Örnek: Geçmiş
+    print("\n5. TQE Geçmiş (Son 7 gün):")
+    history = crawler.get_fund_history("TQE", days=7)
+    print(json.dumps(history[:3], indent=2, ensure_ascii=False))
 
     # Örnek: Kar/zarar hesaplama
-    print("\nKar/Zarar Hesaplama:")
+    print("\n6. Kar/Zarar Hesaplama:")
     result = crawler.calculate_profit_loss(
         fund_code="TQE",
         purchase_price=0.050000,

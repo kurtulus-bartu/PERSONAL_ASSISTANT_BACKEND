@@ -10,7 +10,7 @@ class FundInvestment(BaseModel):
     investment_amount: float = Field(..., description="Yatırılan miktar (TL)")
     purchase_price: float = Field(..., description="Alış fiyatı")
     purchase_date: datetime = Field(..., description="Alış tarihi")
-    units: float = Field(..., description="Alınan pay adedi")
+    units: Optional[float] = Field(None, description="Alınan pay adedi (otomatik hesaplanır)")
 
 
 class FundPrice(BaseModel):
