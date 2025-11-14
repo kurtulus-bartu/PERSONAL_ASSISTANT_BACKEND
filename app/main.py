@@ -1,6 +1,6 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime
 import os
 
@@ -265,6 +265,52 @@ async def health_check():
         },
         "timestamp": datetime.now().isoformat()
     }
+
+
+# Backup & Restore Endpoints
+@app.post("/api/backup")
+async def backup_data(
+    request: Request,
+    x_user_id: str = Header(...)
+):
+    """
+    iOS uygulamasından gelen tüm veriyi Supabase'e kaydeder
+
+    Args:
+        request: JSON body ile gelen backup verisi
+        x_user_id: Header'dan gelen user ID
+    """
+    try:
+        data = await request.json()
+
+        # Supabase'e kaydet
+        await supabase_service.save_backup_data(user_id=x_user_id, data=data)
+
+        return {
+            "status": "success",
+            "message": "Backup completed successfully",
+            "timestamp": datetime.now().isoformat(),
+            "user_id": x_user_id
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Backup failed: {str(e)}")
+
+
+@app.get("/api/restore")
+async def restore_data(x_user_id: str = Header(...)):
+    """
+    Supabase'den kullanıcının tüm verisini çeker ve iOS'a döner
+
+    Args:
+        x_user_id: Header'dan gelen user ID
+    """
+    try:
+        # Supabase'den veriyi çek
+        data = await supabase_service.get_backup_data(user_id=x_user_id)
+
+        return data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Restore failed: {str(e)}")
 
 
 if __name__ == "__main__":

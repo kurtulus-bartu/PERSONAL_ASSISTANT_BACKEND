@@ -417,3 +417,359 @@ class SupabaseService:
             2
         )
         return change_value, change_percent
+
+    # -------------------------------------------------------------------------
+    # Backup & Restore Operations
+    # -------------------------------------------------------------------------
+
+    async def save_backup_data(self, user_id: str, data: Dict) -> None:
+        """iOS'dan gelen backup verisini Supabase'e kaydeder"""
+        if not self.client:
+            raise Exception("Supabase client not initialized")
+
+        await asyncio.to_thread(self._save_backup_sync, user_id, data)
+
+    def _save_backup_sync(self, user_id: str, data: Dict) -> None:
+        """Sync olarak backup verisini kaydeder"""
+
+        # Fund Investments
+        if "fundInvestments" in data:
+            self._save_fund_investments(user_id, data["fundInvestments"])
+
+        # Budget Info
+        if "budgetInfo" in data:
+            self._save_budget_info(user_id, data["budgetInfo"])
+
+        # Monthly Expenses
+        if "monthlyExpenses" in data:
+            self._save_monthly_expenses(user_id, data["monthlyExpenses"])
+
+        # Tasks
+        if "tasks" in data:
+            self._save_tasks(user_id, data["tasks"])
+
+        # Notes
+        if "notes" in data:
+            self._save_notes(user_id, data["notes"])
+
+        # Pomodoro Sessions
+        if "pomodoroSessions" in data:
+            self._save_pomodoro_sessions(user_id, data["pomodoroSessions"])
+
+        # Weight Entries
+        if "weightEntries" in data:
+            self._save_weight_entries(user_id, data["weightEntries"])
+
+        # Sleep Entries
+        if "sleepEntries" in data:
+            self._save_sleep_entries(user_id, data["sleepEntries"])
+
+        # Meal Entries
+        if "mealEntries" in data:
+            self._save_meal_entries(user_id, data["mealEntries"])
+
+        # Workout Entries
+        if "workoutEntries" in data:
+            self._save_workout_entries(user_id, data["workoutEntries"])
+
+    def _save_fund_investments(self, user_id: str, investments: List[Dict]) -> None:
+        """Fon yatırımlarını kaydet"""
+        rows = [
+            {
+                "id": inv["id"],
+                "user_id": user_id,
+                "fund_code": inv["fundCode"],
+                "fund_name": inv["fundName"],
+                "investment_amount": inv["investmentAmount"],
+                "purchase_price": inv["purchasePrice"],
+                "purchase_date": inv["purchaseDate"],
+                "units": inv["units"],
+                "notes": inv["notes"]
+            }
+            for inv in investments
+        ]
+
+        if rows:
+            self.client.table("fund_investments").upsert(rows, on_conflict="id").execute()
+
+    def _save_budget_info(self, user_id: str, budget: Dict) -> None:
+        """Bütçe bilgisini kaydet"""
+        row = {
+            "user_id": user_id,
+            "monthly_salary": budget["monthlySalary"],
+            "total_investments": budget["totalInvestments"],
+            "custom_expenses": budget["customExpenses"]
+        }
+
+        self.client.table("budget_info").upsert(row, on_conflict="user_id").execute()
+
+    def _save_monthly_expenses(self, user_id: str, expenses: List[Dict]) -> None:
+        """Aylık harcamaları kaydet"""
+        rows = [
+            {
+                "id": exp["id"],
+                "user_id": user_id,
+                "month": exp["month"],
+                "total_expense": exp["totalExpense"],
+                "salary": exp["salary"],
+                "investments": exp["investments"]
+            }
+            for exp in expenses
+        ]
+
+        if rows:
+            self.client.table("monthly_expenses").upsert(rows, on_conflict="id").execute()
+
+    def _save_tasks(self, user_id: str, tasks: List[Dict]) -> None:
+        """Görevleri kaydet"""
+        # TODO: Implement task saving
+        pass
+
+    def _save_notes(self, user_id: str, notes: List[Dict]) -> None:
+        """Notları kaydet"""
+        # TODO: Implement note saving
+        pass
+
+    def _save_pomodoro_sessions(self, user_id: str, sessions: List[Dict]) -> None:
+        """Pomodoro oturumlarını kaydet"""
+        # TODO: Implement pomodoro saving
+        pass
+
+    def _save_weight_entries(self, user_id: str, entries: List[Dict]) -> None:
+        """Kilo kayıtlarını kaydet"""
+        rows = [
+            {
+                "id": entry["id"],
+                "user_id": user_id,
+                "date": entry["date"],
+                "weight": entry["weight"],
+                "body_fat": entry.get("bodyFat", 0),
+                "muscle_mass": entry.get("muscleMass", 0),
+                "bmi": entry.get("bmi", 0),
+                "notes": entry.get("notes", "")
+            }
+            for entry in entries
+        ]
+
+        if rows:
+            self.client.table("weight_entries").upsert(rows, on_conflict="id").execute()
+
+    def _save_sleep_entries(self, user_id: str, entries: List[Dict]) -> None:
+        """Uyku kayıtlarını kaydet"""
+        rows = [
+            {
+                "id": entry["id"],
+                "user_id": user_id,
+                "date": entry["date"],
+                "bed_time": entry["bedTime"],
+                "wake_time": entry["wakeTime"],
+                "quality": entry["quality"],
+                "notes": entry.get("notes", "")
+            }
+            for entry in entries
+        ]
+
+        if rows:
+            self.client.table("sleep_entries").upsert(rows, on_conflict="id").execute()
+
+    def _save_meal_entries(self, user_id: str, entries: List[Dict]) -> None:
+        """Yemek kayıtlarını kaydet"""
+        rows = [
+            {
+                "id": entry["id"],
+                "user_id": user_id,
+                "date": entry["date"],
+                "meal_type": entry["mealType"],
+                "description": entry["description"],
+                "calories": entry["calories"],
+                "notes": entry.get("notes", "")
+            }
+            for entry in entries
+        ]
+
+        if rows:
+            self.client.table("meal_entries").upsert(rows, on_conflict="id").execute()
+
+    def _save_workout_entries(self, user_id: str, entries: List[Dict]) -> None:
+        """Antrenman kayıtlarını kaydet"""
+        rows = [
+            {
+                "id": entry["id"],
+                "user_id": user_id,
+                "date": entry["date"],
+                "workout_type": entry["workoutType"],
+                "duration": entry["duration"],
+                "calories_burned": entry["caloriesBurned"],
+                "notes": entry.get("notes", "")
+            }
+            for entry in entries
+        ]
+
+        if rows:
+            self.client.table("workout_entries").upsert(rows, on_conflict="id").execute()
+
+            # Egzersizleri de kaydet
+            for entry in entries:
+                if "exercises" in entry:
+                    exercise_rows = [
+                        {
+                            "id": ex["id"],
+                            "workout_id": entry["id"],
+                            "name": ex["name"],
+                            "sets": ex["sets"],
+                            "reps": ex["reps"],
+                            "weight": ex["weight"],
+                            "notes": ex.get("notes", "")
+                        }
+                        for ex in entry["exercises"]
+                    ]
+                    if exercise_rows:
+                        self.client.table("exercises").upsert(exercise_rows, on_conflict="id").execute()
+
+    async def get_backup_data(self, user_id: str) -> Dict:
+        """Supabase'den kullanıcının tüm verisini çeker"""
+        if not self.client:
+            raise Exception("Supabase client not initialized")
+
+        return await asyncio.to_thread(self._get_backup_sync, user_id)
+
+    def _get_backup_sync(self, user_id: str) -> Dict:
+        """Sync olarak backup verisini getirir"""
+        backup_data = {}
+
+        # Fund Investments
+        fund_investments = self.client.table("fund_investments") \
+            .select("*") \
+            .eq("user_id", user_id) \
+            .execute()
+        backup_data["fundInvestments"] = [
+            {
+                "id": row["id"],
+                "fundCode": row["fund_code"],
+                "fundName": row["fund_name"],
+                "investmentAmount": row["investment_amount"],
+                "purchasePrice": row["purchase_price"],
+                "purchaseDate": row["purchase_date"],
+                "units": row["units"],
+                "notes": row["notes"]
+            }
+            for row in (fund_investments.data or [])
+        ]
+
+        # Budget Info
+        budget_info = self.client.table("budget_info") \
+            .select("*") \
+            .eq("user_id", user_id) \
+            .execute()
+        if budget_info.data:
+            budget_data = budget_info.data[0]
+            backup_data["budgetInfo"] = {
+                "monthlySalary": budget_data["monthly_salary"],
+                "totalInvestments": budget_data["total_investments"],
+                "customExpenses": budget_data["custom_expenses"]
+            }
+
+        # Monthly Expenses
+        monthly_expenses = self.client.table("monthly_expenses") \
+            .select("*") \
+            .eq("user_id", user_id) \
+            .execute()
+        backup_data["monthlyExpenses"] = [
+            {
+                "id": row["id"],
+                "month": row["month"],
+                "totalExpense": row["total_expense"],
+                "salary": row["salary"],
+                "investments": row["investments"]
+            }
+            for row in (monthly_expenses.data or [])
+        ]
+
+        # Weight Entries
+        weight_entries = self.client.table("weight_entries") \
+            .select("*") \
+            .eq("user_id", user_id) \
+            .execute()
+        backup_data["weightEntries"] = [
+            {
+                "id": row["id"],
+                "date": row["date"],
+                "weight": row["weight"],
+                "bodyFat": row.get("body_fat", 0),
+                "muscleMass": row.get("muscle_mass", 0),
+                "bmi": row.get("bmi", 0),
+                "notes": row.get("notes", "")
+            }
+            for row in (weight_entries.data or [])
+        ]
+
+        # Sleep Entries
+        sleep_entries = self.client.table("sleep_entries") \
+            .select("*") \
+            .eq("user_id", user_id) \
+            .execute()
+        backup_data["sleepEntries"] = [
+            {
+                "id": row["id"],
+                "date": row["date"],
+                "bedTime": row["bed_time"],
+                "wakeTime": row["wake_time"],
+                "quality": row["quality"],
+                "notes": row.get("notes", "")
+            }
+            for row in (sleep_entries.data or [])
+        ]
+
+        # Meal Entries
+        meal_entries = self.client.table("meal_entries") \
+            .select("*") \
+            .eq("user_id", user_id) \
+            .execute()
+        backup_data["mealEntries"] = [
+            {
+                "id": row["id"],
+                "date": row["date"],
+                "mealType": row["meal_type"],
+                "description": row["description"],
+                "calories": row["calories"],
+                "notes": row.get("notes", "")
+            }
+            for row in (meal_entries.data or [])
+        ]
+
+        # Workout Entries with Exercises
+        workout_entries = self.client.table("workout_entries") \
+            .select("*") \
+            .eq("user_id", user_id) \
+            .execute()
+
+        workouts_with_exercises = []
+        for workout in (workout_entries.data or []):
+            exercises = self.client.table("exercises") \
+                .select("*") \
+                .eq("workout_id", workout["id"]) \
+                .execute()
+
+            workouts_with_exercises.append({
+                "id": workout["id"],
+                "date": workout["date"],
+                "workoutType": workout["workout_type"],
+                "duration": workout["duration"],
+                "caloriesBurned": workout["calories_burned"],
+                "notes": workout.get("notes", ""),
+                "exercises": [
+                    {
+                        "id": ex["id"],
+                        "name": ex["name"],
+                        "sets": ex["sets"],
+                        "reps": ex["reps"],
+                        "weight": ex["weight"],
+                        "notes": ex.get("notes", "")
+                    }
+                    for ex in (exercises.data or [])
+                ]
+            })
+
+        backup_data["workoutEntries"] = workouts_with_exercises
+
+        return backup_data
