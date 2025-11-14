@@ -444,6 +444,9 @@ class SupabaseService:
         if "monthlyExpenses" in data:
             self._save_monthly_expenses(user_id, data["monthlyExpenses"])
 
+        if "healthEntries" in data:
+            self._save_health_entries(user_id, data["healthEntries"])
+
         # Tasks
         if "tasks" in data:
             self._save_tasks(user_id, data["tasks"])
@@ -519,6 +522,34 @@ class SupabaseService:
 
         if rows:
             self.client.table("monthly_expenses").upsert(rows, on_conflict="id").execute()
+
+    def _save_health_entries(self, user_id: str, entries: List[Dict]) -> None:
+        """Sağlık kayıtlarını (günlük) kaydet"""
+        if not entries:
+            return
+
+        latest_per_day: Dict[str, Dict] = {}
+        for entry in entries:
+            date_key = entry.get("date", "")[:10]
+            if not date_key:
+                continue
+            latest_per_day[date_key] = entry
+
+        rows = [
+            {
+                "id": entry["id"],
+                "user_id": user_id,
+                "date": entry["date"],
+                "calories_burned": entry.get("caloriesBurned", 0),
+                "calories_consumed": entry.get("caloriesConsumed", 0),
+                "steps": entry.get("steps", 0),
+                "active_minutes": entry.get("activeMinutes", 0)
+            }
+            for entry in latest_per_day.values()
+        ]
+
+        if rows:
+            self.client.table("health_entries").upsert(rows, on_conflict="user_id,date").execute()
 
     def _save_tasks(self, user_id: str, tasks: List[Dict]) -> None:
         """Görevleri kaydet"""
@@ -683,6 +714,23 @@ class SupabaseService:
                 "investments": row["investments"]
             }
             for row in (monthly_expenses.data or [])
+        ]
+
+        # Health Entries
+        health_entries = self.client.table("health_entries") \
+            .select("*") \
+            .eq("user_id", user_id) \
+            .execute()
+        backup_data["healthEntries"] = [
+            {
+                "id": row["id"],
+                "date": row["date"],
+                "caloriesBurned": row.get("calories_burned", 0),
+                "caloriesConsumed": row.get("calories_consumed", 0),
+                "steps": row.get("steps", 0),
+                "activeMinutes": row.get("active_minutes", 0)
+            }
+            for row in (health_entries.data or [])
         ]
 
         # Weight Entries
