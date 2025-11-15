@@ -447,6 +447,9 @@ class SupabaseService:
         if "healthEntries" in data:
             self._save_health_entries(user_id, data["healthEntries"])
 
+        if "financeMetrics" in data:
+            self._save_finance_metrics(user_id, data["financeMetrics"])
+
         # Tasks
         if "tasks" in data:
             self._save_tasks(user_id, data["tasks"])
@@ -523,6 +526,25 @@ class SupabaseService:
         if rows:
             self.client.table("monthly_expenses").upsert(rows, on_conflict="id").execute()
 
+    def _save_finance_metrics(self, user_id: str, metrics: List[Dict]) -> None:
+        """Günlük finans metriklerini kaydet"""
+        rows = [
+            {
+                "id": metric["id"],
+                "user_id": user_id,
+                "metric_date": metric["date"],
+                "total_investment": metric.get("totalInvestment", 0),
+                "current_value": metric.get("currentValue", 0),
+                "profit_loss": metric.get("profitLoss", 0),
+                "profit_loss_percent": metric.get("profitLossPercent", 0)
+            }
+            for metric in metrics
+        ]
+
+        if rows:
+            self.client.table("finance_metrics").upsert(rows, on_conflict="user_id,metric_date").execute()
+            self._remove_duplicates("finance_metrics", ["metric_date"], user_id)
+
     def _save_health_entries(self, user_id: str, entries: List[Dict]) -> None:
         """Sağlık kayıtlarını (günlük) kaydet"""
         if not entries:
@@ -550,6 +572,7 @@ class SupabaseService:
 
         if rows:
             self.client.table("health_entries").upsert(rows, on_conflict="user_id,date").execute()
+            self._remove_duplicates("health_entries", ["date"], user_id)
 
     def _save_tasks(self, user_id: str, tasks: List[Dict]) -> None:
         """Görevleri kaydet"""
@@ -638,6 +661,11 @@ class SupabaseService:
 
         if rows:
             self.client.table("workout_entries").upsert(rows, on_conflict="id").execute()
+            self._remove_duplicates(
+                "workout_entries",
+                ["date", "workout_type", "duration", "calories_burned"],
+                user_id
+            )
 
             # Egzersizleri de kaydet
             for entry in entries:
@@ -652,10 +680,10 @@ class SupabaseService:
                             "weight": ex["weight"],
                             "notes": ex.get("notes", "")
                         }
-                        for ex in entry["exercises"]
-                    ]
-                    if exercise_rows:
-                        self.client.table("exercises").upsert(exercise_rows, on_conflict="id").execute()
+                    for ex in entry["exercises"]
+                ]
+                if exercise_rows:
+                    self.client.table("exercises").upsert(exercise_rows, on_conflict="id").execute()
 
     async def get_backup_data(self, user_id: str) -> Dict:
         """Supabase'den kullanıcının tüm verisini çeker"""
@@ -731,6 +759,23 @@ class SupabaseService:
                 "activeMinutes": row.get("active_minutes", 0)
             }
             for row in (health_entries.data or [])
+        ]
+
+        finance_metrics = self.client.table("finance_metrics") \
+            .select("*") \
+            .eq("user_id", user_id) \
+            .order("metric_date", desc=False) \
+            .execute()
+        backup_data["financeMetrics"] = [
+            {
+                "id": row["id"],
+                "date": row["metric_date"],
+                "totalInvestment": row.get("total_investment", 0),
+                "currentValue": row.get("current_value", 0),
+                "profitLoss": row.get("profit_loss", 0),
+                "profitLossPercent": row.get("profit_loss_percent", 0)
+            }
+            for row in (finance_metrics.data or [])
         ]
 
         # Weight Entries
@@ -821,3 +866,29 @@ class SupabaseService:
         backup_data["workoutEntries"] = workouts_with_exercises
 
         return backup_data
+
+    def _remove_duplicates(self, table: str, fields: List[str], user_id: str) -> None:
+        """Belirli alanlara göre duplicate kayıtları siler"""
+        try:
+            response = self.client.table(table) \
+                .select(",".join(["id"] + fields)) \
+                .eq("user_id", user_id) \
+                .execute()
+        except Exception:
+            return
+
+        rows = response.data or []
+        seen = set()
+        duplicates: List[str] = []
+
+        for row in rows:
+            key = tuple(row.get(field) for field in fields)
+            if key in seen:
+                duplicates.append(row["id"])
+            else:
+                seen.add(key)
+
+        while duplicates:
+            chunk = duplicates[:100]
+            duplicates = duplicates[100:]
+            self.client.table(table).delete().in_("id", chunk).execute()
