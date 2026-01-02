@@ -12,10 +12,15 @@ from models import (
     GeminiRequest,
     GeminiResponse,
     PortfolioHistoryResponse,
-    PortfolioRange
+    PortfolioRange,
+    EnhancedGeminiRequest,
+    EnhancedGeminiResponse,
+    QuickAnalysisRequest,
+    QuickAnalysisResponse
 )
 from tefas_crawler import TEFASCrawler
 from gemini_service import GeminiService
+from enhanced_gemini_service import EnhancedGeminiService
 from supabase_service import SupabaseService
 
 # FastAPI app
@@ -251,6 +256,92 @@ async def analyze_portfolio(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# Enhanced AI Endpoints (AŞAMA 4)
+@app.post("/api/ai/chat-v2", response_model=EnhancedGeminiResponse)
+async def enhanced_ai_chat(request: EnhancedGeminiRequest):
+    """
+    Enhanced AI chat with data request capabilities
+
+    This endpoint:
+    - Accepts complete user data from frontend
+    - AI can request specific data via JSON
+    - Backend filters and provides only requested data
+    - Supports multi-turn conversations with context
+    - Tracks data requests made during conversation
+
+    Args:
+        request: Enhanced request with user message, complete user data, and conversation history
+
+    Returns:
+        Enhanced response with AI message, updated conversation history, and data request count
+    """
+    try:
+        # Initialize enhanced Gemini service
+        service = EnhancedGeminiService(api_key=request.api_key)
+
+        # Process chat with data request loop
+        response_text, updated_history = service.chat(
+            user_message=request.message,
+            user_data=request.user_data,
+            conversation_history=request.conversation_history,
+            user_id=request.user_id
+        )
+
+        # Count data requests in conversation
+        data_requests_count = sum(
+            1 for msg in updated_history
+            if msg.get("data_request", False)
+        )
+
+        return EnhancedGeminiResponse(
+            response=response_text,
+            conversation_history=updated_history,
+            data_requests_made=data_requests_count,
+            timestamp=datetime.now()
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Enhanced AI chat failed: {str(e)}")
+
+
+@app.post("/api/ai/quick-analysis", response_model=QuickAnalysisResponse)
+async def quick_analysis(request: QuickAnalysisRequest):
+    """
+    Quick data analysis without full conversation
+
+    Provides instant analysis of a specific data category:
+    - tasks, notes, health, sleep, weight, meals, workouts
+    - portfolio, goals, budget, salary, friends
+
+    Args:
+        request: Category, user data, time range, and API key
+
+    Returns:
+        Quick analysis result with summary, metrics, trends, and recommendations
+    """
+    try:
+        # Initialize enhanced Gemini service
+        service = EnhancedGeminiService(api_key=request.api_key)
+
+        # Perform quick analysis
+        analysis = service.quick_analysis(
+            category=request.category,
+            user_data=request.user_data,
+            time_range=request.time_range,
+            user_id=request.user_id
+        )
+
+        return QuickAnalysisResponse(
+            analysis=analysis,
+            category=request.category,
+            time_range=request.time_range,
+            timestamp=datetime.now()
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Quick analysis failed: {str(e)}")
 
 
 # Yardımcı endpoint'ler
