@@ -294,7 +294,7 @@ async def enhanced_ai_chat(request: EnhancedGeminiRequest):
         service = EnhancedGeminiService(api_key=request.api_key)
 
         # Process chat with data request loop
-        response_text, updated_history = service.chat(
+        response_text, updated_history, suggestions, memories = service.chat(
             user_message=request.message,
             user_data=request.user_data,
             conversation_history=request.conversation_history,
@@ -311,6 +311,8 @@ async def enhanced_ai_chat(request: EnhancedGeminiRequest):
             response=response_text,
             conversation_history=updated_history,
             data_requests_made=data_requests_count,
+            suggestions=suggestions,
+            memories=memories,
             timestamp=datetime.now()
         )
 

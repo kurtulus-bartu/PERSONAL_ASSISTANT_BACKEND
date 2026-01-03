@@ -11,7 +11,9 @@ import google.generativeai as genai
 from ai_capabilities import (
     get_capabilities_prompt,
     parse_data_request,
-    format_response_with_request_info
+    format_response_with_request_info,
+    parse_suggestions_and_memories,
+    remove_tags_from_response
 )
 from ai_data_provider import AIDataProvider
 
@@ -46,7 +48,7 @@ class EnhancedGeminiService:
         conversation_history: Optional[List[Dict]] = None,
         user_id: Optional[str] = None,
         max_data_requests: int = 3
-    ) -> Tuple[str, List[Dict]]:
+    ) -> Tuple[str, List[Dict], List[Dict], List[Dict]]:
         """
         Main chat interface with data request loop
 
@@ -58,7 +60,7 @@ class EnhancedGeminiService:
             max_data_requests: Maximum number of data requests per conversation turn
 
         Returns:
-            Tuple of (AI response, updated conversation history)
+            Tuple of (AI response, updated conversation history, suggestions, memories)
         """
         # Initialize conversation history if None
         if conversation_history is None:
@@ -139,15 +141,23 @@ class EnhancedGeminiService:
 
                 break
 
-        # Add AI response to history
+        # Parse suggestions and memories from AI response
+        parsed = parse_suggestions_and_memories(ai_response or "")
+        suggestions = parsed.get('suggestions', [])
+        memories = parsed.get('memories', [])
+
+        # Remove tags from response for clean text
+        clean_response = remove_tags_from_response(ai_response or "Yanıt oluşturulamadı.")
+
+        # Add AI response to history (clean version without tags)
         if ai_response:
             conversation_history.append({
                 "role": "assistant",
-                "content": ai_response,
+                "content": clean_response,
                 "is_user": False
             })
 
-        return ai_response or "Yanıt oluşturulamadı.", conversation_history
+        return clean_response, conversation_history, suggestions, memories
 
     def _build_prompt(
         self,

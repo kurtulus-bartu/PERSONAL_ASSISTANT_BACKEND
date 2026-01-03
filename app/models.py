@@ -138,6 +138,14 @@ class EnhancedGeminiResponse(BaseModel):
         description="Updated conversation history"
     )
     data_requests_made: int = Field(0, description="Number of data requests made")
+    suggestions: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="AI-generated suggestions for user actions"
+    )
+    memories: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="AI-generated memory items about user"
+    )
     timestamp: datetime = Field(default_factory=datetime.now)
 
 

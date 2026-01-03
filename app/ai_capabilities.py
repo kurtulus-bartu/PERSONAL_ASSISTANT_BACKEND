@@ -218,6 +218,36 @@ Kullanıcının sorusunu yanıtlamak için veriye ihtiyaç duyduğunda, aşağı
 - Önerilerde bulunurken mantıklı gerekçeler sun
 - Kullanıcı gizliliğine saygı göster
 
+## ÖNERİLER VE HAFIZA
+
+Kullanıcıya faydalı önerilerde bulunabilir ve önemli bilgileri hafızana kaydedebilirsin.
+
+### Öneri Formatı
+Uygulamada doğrudan işlem yapılabilecek öneriler oluşturmak için:
+
+<SUGGESTION type="task|goal|health|finance">
+Öneri metni buraya
+[metadata:key=value,key2=value2]
+</SUGGESTION>
+
+Örnek:
+<SUGGESTION type="task">
+Yarın saat 18:00 için spor salonu görevi ekle
+[metadata:time=18:00,project=Sağlık]
+</SUGGESTION>
+
+### Hafıza Formatı
+Kullanıcı hakkında öğrendiğin önemli bilgileri kaydetmek için:
+
+<MEMORY category="habits|preferences|goals|health|finance|personal">
+Hafıza kaydı metni
+</MEMORY>
+
+Örnek:
+<MEMORY category="habits">
+Kullanıcı her pazartesi akşamı spor salonuna gidiyor
+</MEMORY>
+
 ## YANIT FORMATI
 
 Kullanıcıya yanıt verirken:
@@ -226,6 +256,8 @@ Kullanıcıya yanıt verirken:
 3. Sayıları ve metrikleri vurgula
 4. Trendleri ve değişimleri belirt
 5. Actionable önerilerde bulun
+6. İlgili önerileri <SUGGESTION> tagları ile sun
+7. Önemli bilgileri <MEMORY> tagları ile kaydet
 """
 
     return prompt
@@ -425,6 +457,93 @@ def format_response_with_request_info(data_request: Dict[str, Any]) -> str:
     return f"📊 **{category_name}** verilerini analiz ediyorum ({time_name})..."
 
 
+def parse_suggestions_and_memories(ai_response: str) -> Dict[str, List[Dict[str, Any]]]:
+    """
+    Parse AI response to extract suggestions and memory items
+
+    Args:
+        ai_response: AI's response text that may contain SUGGESTION and MEMORY tags
+
+    Returns:
+        Dict with 'suggestions' and 'memories' lists
+    """
+    import re
+
+    suggestions = []
+    memories = []
+
+    # Parse SUGGESTION tags
+    # Format: <SUGGESTION type="task">Text here[metadata:key=value,key2=value2]</SUGGESTION>
+    suggestion_pattern = r'<SUGGESTION\s+type="([^"]+)">([^<]+)</SUGGESTION>'
+    suggestion_matches = re.findall(suggestion_pattern, ai_response, re.DOTALL)
+
+    for suggestion_type, content in suggestion_matches:
+        content = content.strip()
+
+        # Extract metadata if present
+        metadata = {}
+        metadata_pattern = r'\[metadata:([^\]]+)\]'
+        metadata_match = re.search(metadata_pattern, content)
+
+        if metadata_match:
+            metadata_str = metadata_match.group(1)
+            # Remove metadata from content
+            content = re.sub(metadata_pattern, '', content).strip()
+
+            # Parse metadata key=value pairs
+            for pair in metadata_str.split(','):
+                if '=' in pair:
+                    key, value = pair.split('=', 1)
+                    metadata[key.strip()] = value.strip()
+
+        suggestions.append({
+            'type': suggestion_type,
+            'description': content,
+            'metadata': metadata if metadata else None
+        })
+
+    # Parse MEMORY tags
+    # Format: <MEMORY category="habits">Text here</MEMORY>
+    memory_pattern = r'<MEMORY\s+category="([^"]+)">([^<]+)</MEMORY>'
+    memory_matches = re.findall(memory_pattern, ai_response, re.DOTALL)
+
+    for category, content in memory_matches:
+        memories.append({
+            'content': content.strip(),
+            'category': category
+        })
+
+    return {
+        'suggestions': suggestions,
+        'memories': memories
+    }
+
+
+def remove_tags_from_response(ai_response: str) -> str:
+    """
+    Remove SUGGESTION and MEMORY tags from AI response to get clean text
+
+    Args:
+        ai_response: AI's response with tags
+
+    Returns:
+        Clean response text without tags
+    """
+    import re
+
+    # Remove SUGGESTION tags
+    clean_response = re.sub(r'<SUGGESTION[^>]+>.*?</SUGGESTION>', '', ai_response, flags=re.DOTALL)
+
+    # Remove MEMORY tags
+    clean_response = re.sub(r'<MEMORY[^>]+>.*?</MEMORY>', '', clean_response, flags=re.DOTALL)
+
+    # Clean up extra whitespace
+    clean_response = re.sub(r'\n\s*\n', '\n\n', clean_response)
+    clean_response = clean_response.strip()
+
+    return clean_response
+
+
 # Export main functions
 __all__ = [
     'AI_CAPABILITIES',
@@ -434,5 +553,7 @@ __all__ = [
     'parse_data_request',
     'calculate_date_range',
     'validate_data_request',
-    'format_response_with_request_info'
+    'format_response_with_request_info',
+    'parse_suggestions_and_memories',
+    'remove_tags_from_response'
 ]
