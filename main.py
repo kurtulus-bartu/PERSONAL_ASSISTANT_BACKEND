@@ -77,9 +77,21 @@ async def get_fund_price(fund_code: str, date: Optional[str] = None):
     try:
         result = tefas_crawler.get_fund_price(fund_code, date)
         if not result:
+            fallback = tefas_crawler.search_funds(fund_code)
+            if fallback:
+                sample = fallback[0]
+                return FundPrice(
+                    fund_code=sample.get("fund_code", fund_code.upper()),
+                    fund_name=sample.get("fund_name", ""),
+                    price=sample.get("price", 0),
+                    date=sample.get("date", ""),
+                    change_percent=sample.get("change_percent")
+                )
             raise HTTPException(status_code=404, detail=f"Fon bulunamadı: {fund_code}")
 
         return FundPrice(**result)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
