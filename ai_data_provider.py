@@ -4,13 +4,48 @@ Provides filtered data to AI based on data requests
 """
 
 from typing import Dict, List, Optional, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from ai_capabilities import (
     DataCategory,
     TimeRange,
     calculate_date_range,
     validate_data_request
 )
+
+
+def _ensure_aware(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _parse_datetime(value: Any) -> Optional[datetime]:
+    if value is None:
+        return None
+
+    if isinstance(value, datetime):
+        return _ensure_aware(value)
+
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return None
+        try:
+            parsed = datetime.fromisoformat(raw.replace('Z', '+00:00'))
+        except ValueError:
+            try:
+                parsed = datetime.fromisoformat(f"{raw}-01")
+            except ValueError:
+                return None
+        return _ensure_aware(parsed)
+
+    if isinstance(value, dict) and 'seconds' in value:
+        try:
+            return datetime.fromtimestamp(value['seconds'], tz=timezone.utc)
+        except (TypeError, ValueError, OSError):
+            return None
+
+    return None
 
 
 class AIDataProvider:
@@ -110,19 +145,14 @@ class AIDataProvider:
 
     def _filter_by_date(self, items: List[Dict], date_field: str, start_date: datetime, end_date: datetime) -> List[Dict]:
         """Filter items by date range"""
+        start_date = _ensure_aware(start_date)
+        end_date = _ensure_aware(end_date)
         filtered = []
         for item in items:
             if date_field in item:
-                # Handle both string and datetime
-                item_date = item[date_field]
-                if isinstance(item_date, str):
-                    try:
-                        item_date = datetime.fromisoformat(item_date.replace('Z', '+00:00'))
-                    except:
-                        continue
-                elif isinstance(item_date, dict) and 'seconds' in item_date:
-                    # Handle timestamp format
-                    item_date = datetime.fromtimestamp(item_date['seconds'])
+                item_date = _parse_datetime(item[date_field])
+                if not item_date:
+                    continue
 
                 if start_date <= item_date <= end_date:
                     filtered.append(item)

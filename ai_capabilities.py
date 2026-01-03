@@ -4,7 +4,7 @@ Handles AI capability listing and data request processing
 """
 
 from typing import Dict, List, Optional, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 
 
@@ -296,7 +296,7 @@ def calculate_date_range(time_range: str, custom_range: Optional[Dict] = None) -
     Returns:
         Tuple of (start_date, end_date)
     """
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
 
     if time_range == TimeRange.TODAY:
         start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -320,12 +320,22 @@ def calculate_date_range(time_range: str, custom_range: Optional[Dict] = None) -
         end = now
 
     elif time_range == TimeRange.CUSTOM and custom_range:
-        start = datetime.fromisoformat(custom_range.get("start_date"))
-        end = datetime.fromisoformat(custom_range.get("end_date"))
+        start = datetime.fromisoformat(str(custom_range.get("start_date")).replace('Z', '+00:00'))
+        end = datetime.fromisoformat(str(custom_range.get("end_date")).replace('Z', '+00:00'))
 
     else:  # ALL
         start = datetime(2020, 1, 1)  # Arbitrary old date
         end = now
+
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=timezone.utc)
+    else:
+        start = start.astimezone(timezone.utc)
+
+    if end.tzinfo is None:
+        end = end.replace(tzinfo=timezone.utc)
+    else:
+        end = end.astimezone(timezone.utc)
 
     return start, end
 
