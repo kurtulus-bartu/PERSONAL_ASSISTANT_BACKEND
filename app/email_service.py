@@ -1,5 +1,6 @@
 """
 Email Service for sending daily summaries and notifications
+Supports both Resend (production) and SMTP (local development)
 """
 
 import smtplib
@@ -11,15 +12,36 @@ import os
 
 
 class EmailService:
-    """Service for sending emails"""
+    """Service for sending emails via Resend or SMTP"""
 
     def __init__(self):
-        # Email configuration from environment variables
+        # Resend configuration (preferred for production)
+        self.resend_api_key = os.getenv("RESEND_API_KEY")
+
+        # SMTP configuration (fallback for local development)
         self.smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
         self.smtp_port = int(os.getenv("SMTP_PORT", "587"))
         self.sender_email = os.getenv("SENDER_EMAIL")
         self.sender_password = os.getenv("SENDER_PASSWORD")
-        self.is_configured = bool(self.sender_email and self.sender_password)
+
+        # Determine which method to use
+        self.use_resend = bool(self.resend_api_key)
+        self.use_smtp = bool(self.sender_email and self.sender_password)
+        self.is_configured = self.use_resend or self.use_smtp
+
+        if self.use_resend:
+            try:
+                import resend
+                resend.api_key = self.resend_api_key
+                self.resend = resend
+                print("✅ Email service configured with Resend")
+            except ImportError:
+                print("⚠️  Resend library not installed, falling back to SMTP")
+                self.use_resend = False
+        elif self.use_smtp:
+            print("✅ Email service configured with SMTP")
+        else:
+            print("⚠️  Email service not configured")
 
     def send_daily_summary(
         self,
@@ -43,7 +65,7 @@ class EmailService:
             True if email sent successfully, False otherwise
         """
         if not self.is_configured:
-            print("⚠️  Email service not configured. Set SENDER_EMAIL and SENDER_PASSWORD environment variables.")
+            print("⚠️  Email service not configured. Set RESEND_API_KEY or SENDER_EMAIL/SENDER_PASSWORD.")
             return False
 
         if not tasks:
@@ -64,28 +86,58 @@ class EmailService:
             date=date
         )
 
-        # Create message
-        message = MIMEMultipart("alternative")
-        message["Subject"] = subject
-        message["From"] = self.sender_email
-        message["To"] = recipient_email
+        # Send via Resend or SMTP
+        if self.use_resend:
+            return self._send_via_resend(recipient_email, subject, html_body)
+        else:
+            return self._send_via_smtp(recipient_email, subject, html_body)
 
-        # Add HTML part
-        html_part = MIMEText(html_body, "html")
-        message.attach(html_part)
-
-        # Send email
+    def _send_via_resend(self, recipient_email: str, subject: str, html_body: str) -> bool:
+        """Send email via Resend API"""
         try:
+            # Resend API call
+            params = {
+                "from": self.sender_email or "onboarding@resend.dev",
+                "to": recipient_email,
+                "subject": subject,
+                "html": html_body
+            }
+
+            response = self.resend.Emails.send(params)
+
+            # Resend returns the email object on success
+            if response:
+                print(f"✅ Email sent successfully to {recipient_email} via Resend (ID: {response.get('id', 'N/A')})")
+                return True
+            else:
+                print(f"❌ Resend returned empty response")
+                return False
+
+        except Exception as e:
+            print(f"❌ Failed to send email via Resend to {recipient_email}: {str(e)}")
+            return False
+
+    def _send_via_smtp(self, recipient_email: str, subject: str, html_body: str) -> bool:
+        """Send email via SMTP"""
+        try:
+            message = MIMEMultipart("alternative")
+            message["Subject"] = subject
+            message["From"] = self.sender_email
+            message["To"] = recipient_email
+
+            html_part = MIMEText(html_body, "html")
+            message.attach(html_part)
+
             with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
                 server.starttls()
                 server.login(self.sender_email, self.sender_password)
                 server.send_message(message)
 
-            print(f"✅ Email sent successfully to {recipient_email}")
+            print(f"✅ Email sent successfully to {recipient_email} via SMTP")
             return True
 
         except Exception as e:
-            print(f"❌ Failed to send email to {recipient_email}: {str(e)}")
+            print(f"❌ Failed to send email via SMTP to {recipient_email}: {str(e)}")
             return False
 
     def _build_html_summary(

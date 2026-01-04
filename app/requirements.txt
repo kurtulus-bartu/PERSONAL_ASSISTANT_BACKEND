@@ -24,3 +24,6 @@ python-dateutil==2.9.0.post0
 
 # Supabase
 supabase==2.6.0
+
+# Email (Resend for production, SMTP for local)
+resend==2.4.0
