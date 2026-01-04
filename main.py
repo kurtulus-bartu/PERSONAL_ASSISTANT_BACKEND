@@ -16,12 +16,15 @@ from models import (
     EnhancedGeminiRequest,
     EnhancedGeminiResponse,
     QuickAnalysisRequest,
-    QuickAnalysisResponse
+    QuickAnalysisResponse,
+    DailySummaryRequest,
+    EmailResponse
 )
 from tefas_crawler import TEFASCrawler
 from gemini_service import GeminiService
 from enhanced_gemini_service import EnhancedGeminiService
 from supabase_service import SupabaseService
+from email_service import email_service
 
 # FastAPI app
 app = FastAPI(
@@ -416,6 +419,68 @@ async def restore_data(x_user_id: str = Header(...)):
         return data
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Restore failed: {str(e)}")
+
+
+# -------------------------------------------------------------------------
+# Email Endpoints
+# -------------------------------------------------------------------------
+
+
+@app.post("/api/email/daily-summary", response_model=EmailResponse)
+async def send_daily_summary(request: DailySummaryRequest):
+    """
+    Send daily task summary emails to assigned friends
+
+    Args:
+        request: Daily summary request with user name, tasks, and recipients
+
+    Returns:
+        EmailResponse with success status and details
+    """
+    if not request.recipients:
+        return EmailResponse(
+            success=True,
+            sent_count=0,
+            failed_count=0,
+            details=[]
+        )
+
+    sent_count = 0
+    failed_count = 0
+    details = []
+
+    for recipient in request.recipients:
+        # Filter tasks assigned to this friend (if needed)
+        # For now, send all tasks to all recipients
+        success = email_service.send_daily_summary(
+            recipient_email=recipient.email,
+            recipient_name=recipient.name,
+            user_name=request.user_name,
+            tasks=[dict(task) for task in request.tasks],
+            date=request.date
+        )
+
+        if success:
+            sent_count += 1
+            details.append({
+                "recipient": recipient.email,
+                "status": "sent",
+                "message": "Email sent successfully"
+            })
+        else:
+            failed_count += 1
+            details.append({
+                "recipient": recipient.email,
+                "status": "failed",
+                "message": "Failed to send email"
+            })
+
+    return EmailResponse(
+        success=(failed_count == 0),
+        sent_count=sent_count,
+        failed_count=failed_count,
+        details=details
+    )
 
 
 if __name__ == "__main__":

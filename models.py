@@ -164,3 +164,30 @@ class QuickAnalysisResponse(BaseModel):
     category: str = Field(..., description="Analyzed category")
     time_range: str = Field(..., description="Time range used")
     timestamp: datetime = Field(default_factory=datetime.now)
+
+
+# -------------------------------------------------------------------------
+# Email Models
+# -------------------------------------------------------------------------
+
+
+class EmailRecipient(BaseModel):
+    """Email recipient information"""
+    email: str = Field(..., description="Recipient email address")
+    name: str = Field(..., description="Recipient name")
+
+
+class DailySummaryRequest(BaseModel):
+    """Request to send daily task summary emails"""
+    user_name: str = Field(..., description="User's name")
+    tasks: List[Dict[str, Any]] = Field(..., description="List of tasks")
+    recipients: List[EmailRecipient] = Field(..., description="Recipients (friends)")
+    date: Optional[str] = Field(None, description="Date string (defaults to today)")
+
+
+class EmailResponse(BaseModel):
+    """Email sending response"""
+    success: bool = Field(..., description="Whether all emails were sent successfully")
+    sent_count: int = Field(0, description="Number of emails sent successfully")
+    failed_count: int = Field(0, description="Number of failed emails")
+    details: List[Dict[str, Any]] = Field(default_factory=list, description="Details for each recipient")
