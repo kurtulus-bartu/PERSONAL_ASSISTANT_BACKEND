@@ -76,7 +76,7 @@ class EmailService:
             date = datetime.now().strftime("%d.%m.%Y")
 
         # Create email content
-        subject = f"📋 {user_name}'dan Günlük Görev Özeti - {date}"
+        subject = f"📋 {user_name}'dan Görev ve Etkinlik Özeti - {date}"
 
         # Build HTML email body
         html_body = self._build_html_summary(
@@ -246,10 +246,10 @@ class EmailService:
         <body>
             <div class="header">
                 <div class="greeting">Merhaba {recipient_name}! 👋</div>
-                <div class="date">{date} tarihli görev özeti</div>
+                <div class="date">{date} tarihli özet</div>
             </div>
 
-            <p>{user_name}, sizinle paylaşmak istediği {len(tasks)} görevi var:</p>
+            <p>{user_name}, sizinle paylaşmak istediği <strong>{len(tasks)} görev ve etkinlik</strong> var (bugünden itibaren):</p>
         """
 
         # To Do tasks
@@ -303,17 +303,37 @@ class EmailService:
         tag = task.get("tag", "")
         project = task.get("project", "")
 
-        # Format task date
-        start_date = task.get("startDate", "")
-        if isinstance(start_date, str):
-            try:
-                # Try to parse and format the date
-                date_obj = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
-                formatted_date = date_obj.strftime("%d.%m.%Y %H:%M")
-            except:
-                formatted_date = start_date
-        else:
-            formatted_date = ""
+        # Format dates (başlangıç ve bitiş)
+        start_date_str = task.get("startDate", "")
+        end_date_str = task.get("endDate", "")
+
+        formatted_date = ""
+        try:
+            if start_date_str:
+                start_obj = datetime.fromisoformat(start_date_str.replace('Z', '+00:00'))
+                end_obj = None
+
+                if end_date_str:
+                    end_obj = datetime.fromisoformat(end_date_str.replace('Z', '+00:00'))
+
+                # Etkinlik mi (başlangıç != bitiş) yoksa görev mi (başlangıç == bitiş)?
+                if end_obj and start_obj != end_obj:
+                    # Etkinlik: Hem başlangıç hem bitiş zamanlarını göster
+                    start_formatted = start_obj.strftime("%d.%m.%Y %H:%M")
+                    end_formatted = end_obj.strftime("%H:%M")
+
+                    # Aynı gün mü?
+                    if start_obj.date() == end_obj.date():
+                        formatted_date = f"{start_formatted} - {end_formatted}"
+                    else:
+                        end_formatted = end_obj.strftime("%d.%m.%Y %H:%M")
+                        formatted_date = f"{start_formatted} - {end_formatted}"
+                else:
+                    # Görev: Sadece başlangıç zamanı
+                    formatted_date = start_obj.strftime("%d.%m.%Y %H:%M")
+        except:
+            # Hata durumunda string olarak göster
+            formatted_date = start_date_str if start_date_str else ""
 
         status_labels = {
             "todo": "Yapılacak",
@@ -337,7 +357,8 @@ class EmailService:
         if project:
             html += f' <span>📁 {project}</span>'
 
-        if notes:
+        # NOTLAR: Her zaman göster (boş değilse)
+        if notes and notes.strip():
             html += f'<br><span style="margin-top: 5px; display: block;">💬 {notes}</span>'
 
         html += """
