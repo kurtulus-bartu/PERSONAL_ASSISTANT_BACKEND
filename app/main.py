@@ -3,6 +3,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 from models import (
     FundInvestment,
@@ -456,7 +460,7 @@ async def send_daily_summary(request: DailySummaryRequest):
             recipient_email=recipient.email,
             recipient_name=recipient.name,
             user_name=request.user_name,
-            tasks=[dict(task) for task in request.tasks],
+            tasks=request.tasks,
             date=request.date
         )
 
