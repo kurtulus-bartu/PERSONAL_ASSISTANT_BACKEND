@@ -50,7 +50,7 @@ class GeminiRequest(BaseModel):
     """Gemini API isteği"""
     message: str = Field(..., description="Kullanıcı mesajı")
     context: Optional[str] = Field(None, description="Bağlam bilgisi")
-    api_key: str = Field(..., description="Gemini API anahtarı")
+    # api_key removed - now using GEMINI_API_KEY environment variable
 
 
 class GeminiResponse(BaseModel):
@@ -126,7 +126,7 @@ class EnhancedGeminiRequest(BaseModel):
         default_factory=list,
         description="Previous conversation messages"
     )
-    api_key: str = Field(..., description="Gemini API key")
+    # api_key removed - now using GEMINI_API_KEY environment variable
     user_id: Optional[str] = Field(None, description="User ID for database queries")
 
 
@@ -154,7 +154,7 @@ class QuickAnalysisRequest(BaseModel):
     category: str = Field(..., description="Data category (tasks, health, portfolio, etc.)")
     user_data: Dict[str, Any] = Field(..., description="User data")
     time_range: str = Field("week", description="Time range (today, week, month, year, all)")
-    api_key: str = Field(..., description="Gemini API key")
+    # api_key removed - now using GEMINI_API_KEY environment variable
     user_id: Optional[str] = Field(None, description="User ID")
 
 

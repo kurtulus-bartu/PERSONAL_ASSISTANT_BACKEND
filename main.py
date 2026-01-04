@@ -51,8 +51,14 @@ tefas_crawler = TEFASCrawler()
 supabase_service = SupabaseService(tefas_crawler=tefas_crawler)
 
 
-def get_gemini_service(api_key: str) -> GeminiService:
-    """Gemini servisini döndür"""
+def get_gemini_service() -> GeminiService:
+    """Gemini servisini environment variable'dan döndür"""
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=500,
+            detail="GEMINI_API_KEY environment variable not set"
+        )
     try:
         return GeminiService(api_key=api_key)
     except Exception as e:
@@ -225,10 +231,10 @@ async def ai_chat(request: GeminiRequest):
     Gemini AI ile sohbet
 
     Args:
-        request: Mesaj, bağlam ve API anahtarı
+        request: Mesaj ve bağlam
     """
     try:
-        service = get_gemini_service(request.api_key)
+        service = get_gemini_service()
 
         response_text = service.financial_chat(
             message=request.message,
@@ -246,7 +252,6 @@ async def ai_chat(request: GeminiRequest):
 @app.post("/api/ai/analyze-portfolio")
 async def analyze_portfolio(
     investments: List[FundInvestment],
-    api_key: str,
     question: Optional[str] = None
 ):
     """
@@ -254,7 +259,6 @@ async def analyze_portfolio(
 
     Args:
         investments: Fon yatırımları
-        api_key: Gemini API anahtarı
         question: Kullanıcı sorusu (opsiyonel)
     """
     try:
@@ -262,7 +266,7 @@ async def analyze_portfolio(
         portfolio_result = await calculate_portfolio(investments)
 
         # AI analizi yap
-        service = get_gemini_service(api_key)
+        service = get_gemini_service()
         analysis = service.analyze_portfolio(
             portfolio_data=portfolio_result.dict(),
             user_question=question
@@ -298,7 +302,13 @@ async def enhanced_ai_chat(request: EnhancedGeminiRequest):
     """
     try:
         # Initialize enhanced Gemini service
-        service = EnhancedGeminiService(api_key=request.api_key)
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            raise HTTPException(
+                status_code=500,
+                detail="GEMINI_API_KEY environment variable not set"
+            )
+        service = EnhancedGeminiService(api_key=api_key)
 
         # Process chat with data request loop
         response_text, updated_history, suggestions, memories = service.chat(
@@ -344,7 +354,13 @@ async def quick_analysis(request: QuickAnalysisRequest):
     """
     try:
         # Initialize enhanced Gemini service
-        service = EnhancedGeminiService(api_key=request.api_key)
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            raise HTTPException(
+                status_code=500,
+                detail="GEMINI_API_KEY environment variable not set"
+            )
+        service = EnhancedGeminiService(api_key=api_key)
 
         # Perform quick analysis
         analysis = service.quick_analysis(
