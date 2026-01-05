@@ -8,6 +8,7 @@ from supabase import Client, create_client
 
 from models import (
     FundDetail,
+    StockDetail,
     FundPerformance,
     FundReference,
     PortfolioHistoryPoint,
@@ -132,7 +133,8 @@ class SupabaseService:
         recorded_at = datetime.now(timezone.utc)
         snapshot_date = recorded_at.date().isoformat()
 
-        rows = [
+        # Fund rows
+        fund_rows = [
             self._serialize_fund_row(
                 fund,
                 recorded_at,
@@ -141,8 +143,8 @@ class SupabaseService:
             for fund in summary.funds
         ]
 
-        # Toplam portföy satırı
-        rows.append({
+        # Total portfolio row (in fund_daily_values)
+        fund_rows.append({
             "snapshot_date": snapshot_date,
             "recorded_at": recorded_at.isoformat(),
             "fund_code": TOTAL_FUND_CODE,
@@ -154,7 +156,19 @@ class SupabaseService:
             "units": None
         })
 
-        self._upsert_rows(rows)
+        # Stock rows
+        stock_rows = [
+            self._serialize_stock_row(
+                stock,
+                recorded_at,
+                snapshot_date
+            )
+            for stock in summary.stocks
+        ]
+
+        # Save to respective tables
+        self._upsert_rows(fund_rows)
+        self._upsert_stock_rows(stock_rows)
 
     def _serialize_fund_row(
         self,
@@ -175,12 +189,40 @@ class SupabaseService:
             "current_price": fund.current_price,
         }
 
+    def _serialize_stock_row(
+        self,
+        stock: "StockDetail",
+        recorded_at: datetime,
+        snapshot_date: str
+    ) -> Dict:
+        return {
+            "snapshot_date": snapshot_date,
+            "recorded_at": recorded_at.isoformat(),
+            "symbol": stock.symbol,
+            "stock_name": stock.stock_name,
+            "current_value": stock.current_value,
+            "profit_loss": stock.profit_loss,
+            "profit_loss_percent": stock.profit_loss_percent,
+            "investment_amount": stock.investment_amount,
+            "units": stock.units,
+            "current_price": stock.current_price,
+            "currency": stock.currency,
+        }
+
     def _upsert_rows(self, rows: List[Dict]) -> None:
         if not rows or not self.client:
             return
 
         self.client.table("fund_daily_values") \
             .upsert(rows, on_conflict="fund_code,snapshot_date") \
+            .execute()
+
+    def _upsert_stock_rows(self, rows: List[Dict]) -> None:
+        if not rows or not self.client:
+            return
+
+        self.client.table("stock_daily_values") \
+            .upsert(rows, on_conflict="symbol,snapshot_date") \
             .execute()
 
     # -------------------------------------------------------------------------
@@ -436,6 +478,10 @@ class SupabaseService:
         if "fundInvestments" in data:
             self._save_fund_investments(user_id, data["fundInvestments"])
 
+        # Stock Investments
+        if "stockInvestments" in data:
+            self._save_stock_investments(user_id, data["stockInvestments"])
+
         # Budget Info
         if "budgetInfo" in data:
             self._save_budget_info(user_id, data["budgetInfo"])
@@ -497,6 +543,27 @@ class SupabaseService:
 
         if rows:
             self.client.table("fund_investments").upsert(rows, on_conflict="id").execute()
+
+    def _save_stock_investments(self, user_id: str, investments: List[Dict]) -> None:
+        """Hisse yatırımlarını kaydet"""
+        rows = [
+            {
+                "id": inv["id"],
+                "user_id": user_id,
+                "symbol": inv["symbol"],
+                "stock_name": inv.get("stockName", ""),
+                "investment_amount": inv["investmentAmount"],
+                "purchase_price": inv["purchasePrice"],
+                "purchase_date": inv["purchaseDate"],
+                "units": inv["units"],
+                "currency": inv.get("currency", "USD"),
+                "notes": inv.get("notes", "")
+            }
+            for inv in investments
+        ]
+
+        if rows:
+            self.client.table("stock_investments").upsert(rows, on_conflict="id").execute()
 
     def _save_budget_info(self, user_id: str, budget: Dict) -> None:
         """Bütçe bilgisini kaydet"""
@@ -713,6 +780,26 @@ class SupabaseService:
                 "notes": row["notes"]
             }
             for row in (fund_investments.data or [])
+        ]
+
+        # Stock Investments
+        stock_investments = self.client.table("stock_investments") \
+            .select("*") \
+            .eq("user_id", user_id) \
+            .execute()
+        backup_data["stockInvestments"] = [
+            {
+                "id": row["id"],
+                "symbol": row["symbol"],
+                "stockName": row["stock_name"],
+                "investmentAmount": row["investment_amount"],
+                "purchasePrice": row["purchase_price"],
+                "purchaseDate": row["purchase_date"],
+                "units": row["units"],
+                "currency": row.get("currency", "USD"),
+                "notes": row.get("notes", "")
+            }
+            for row in (stock_investments.data or [])
         ]
 
         # Budget Info

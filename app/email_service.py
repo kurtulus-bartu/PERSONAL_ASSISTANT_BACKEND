@@ -149,10 +149,35 @@ class EmailService:
     ) -> str:
         """Build HTML email body"""
 
-        # Categorize tasks by status
-        todo_tasks = [t for t in tasks if t.get("task", "").lower() == "to do"]
-        in_progress_tasks = [t for t in tasks if t.get("task", "").lower() == "in progress"]
-        done_tasks = [t for t in tasks if t.get("task", "").lower() == "done"]
+        # Separate events from tasks based on start/end time difference
+        events = []  # Events have different start and end times
+        task_items = []  # Tasks have same start and end times
+
+        for item in tasks:
+            start_str = item.get("startDate", "")
+            end_str = item.get("endDate", "")
+
+            try:
+                if start_str and end_str:
+                    from datetime import datetime
+                    start = datetime.fromisoformat(start_str.replace('Z', '+00:00'))
+                    end = datetime.fromisoformat(end_str.replace('Z', '+00:00'))
+
+                    if start != end:
+                        events.append(item)
+                    else:
+                        task_items.append(item)
+                else:
+                    task_items.append(item)
+            except:
+                task_items.append(item)
+
+        # Categorize tasks by status (only for tasks, not events)
+        todo_tasks = [t for t in task_items if t.get("task", "").lower() == "to do"]
+        in_progress_tasks = [t for t in task_items if t.get("task", "").lower() == "in progress"]
+
+        # Events don't have status categorization
+        all_events = events
 
         html = f"""
         <!DOCTYPE html>
@@ -249,40 +274,40 @@ class EmailService:
                 <div class="date">{date} tarihli özet</div>
             </div>
 
-            <p>{user_name}, sizinle paylaşmak istediği <strong>{len(tasks)} görev ve etkinlik</strong> var (bugünden itibaren):</p>
+            <p>{user_name}, sizinle paylaşmak istediği <strong>{len(all_events)} etkinlik</strong> ve <strong>{len(task_items)} görev</strong> var (bugünden itibaren):</p>
         """
+
+        # Events section
+        if all_events:
+            html += f"""
+            <div class="section">
+                <div class="section-title">📅 Etkinlikler ({len(all_events)})</div>
+                <ul class="task-list">
+            """
+            for event in all_events:
+                html += self._format_task_html(event, "event")
+            html += "</ul></div>"
 
         # To Do tasks
         if todo_tasks:
             html += f"""
             <div class="section">
-                <div class="section-title">📌 Yapılacak ({len(todo_tasks)})</div>
+                <div class="section-title">📌 Yapılacak Görevler ({len(todo_tasks)})</div>
                 <ul class="task-list">
             """
             for task in todo_tasks:
-                html += self._format_task_html(task, "todo")
+                html += self._format_task_html(task, "task")
             html += "</ul></div>"
 
         # In Progress tasks
         if in_progress_tasks:
             html += f"""
             <div class="section">
-                <div class="section-title">🚀 Devam Eden ({len(in_progress_tasks)})</div>
+                <div class="section-title">🚀 Devam Eden Görevler ({len(in_progress_tasks)})</div>
                 <ul class="task-list">
             """
             for task in in_progress_tasks:
-                html += self._format_task_html(task, "progress")
-            html += "</ul></div>"
-
-        # Done tasks
-        if done_tasks:
-            html += f"""
-            <div class="section">
-                <div class="section-title">✅ Tamamlanan ({len(done_tasks)})</div>
-                <ul class="task-list">
-            """
-            for task in done_tasks:
-                html += self._format_task_html(task, "done")
+                html += self._format_task_html(task, "task")
             html += "</ul></div>"
 
         html += """
@@ -335,27 +360,24 @@ class EmailService:
             # Hata durumunda string olarak göster
             formatted_date = start_date_str if start_date_str else ""
 
-        status_labels = {
-            "todo": "Yapılacak",
-            "progress": "Devam Ediyor",
-            "done": "Tamamlandı"
-        }
-
+        # SADECE: Başlık, tarih ve notlar göster (status badge YOK)
         html = f"""
         <li class="task-item">
             <div class="task-title">{title}</div>
             <div class="task-meta">
-                <span class="status-badge status-{status_class}">{status_labels.get(status_class, "")}</span>
         """
 
+        # Tarih (varsa)
         if formatted_date:
             html += f'<span>📅 {formatted_date}</span>'
 
+        # Tag (varsa)
         if tag:
-            html += f' <span>🏷️ {tag}</span>'
+            html += f' <span style="margin-left: 10px;">🏷️ {tag}</span>'
 
+        # Project (varsa)
         if project:
-            html += f' <span>📁 {project}</span>'
+            html += f' <span style="margin-left: 10px;">📁 {project}</span>'
 
         # NOTLAR: Her zaman göster (boş değilse)
         if notes and notes.strip():

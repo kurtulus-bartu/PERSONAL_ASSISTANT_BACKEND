@@ -36,14 +36,55 @@ class FundDetail(BaseModel):
     units: float
 
 
+# -------------------------------------------------------------------------
+# Stock Investment Models
+# -------------------------------------------------------------------------
+
+
+class StockInvestment(BaseModel):
+    """Stock investment information"""
+    symbol: str = Field(..., description="Stock symbol (e.g., THYAO.IS, AAPL)")
+    stock_name: Optional[str] = Field(None, description="Stock name")
+    investment_amount: float = Field(..., description="Investment amount")
+    purchase_price: float = Field(..., description="Purchase price per share")
+    purchase_date: datetime = Field(..., description="Purchase date")
+    units: Optional[float] = Field(None, description="Number of shares")
+    currency: Optional[str] = Field("USD", description="Currency (TRY, USD, etc.)")
+
+
+class StockPrice(BaseModel):
+    """Stock price information"""
+    symbol: str
+    stock_name: str
+    price: float
+    currency: str
+    date: str
+    change_percent: Optional[float] = None
+
+
+class StockDetail(BaseModel):
+    """Stock detail information"""
+    symbol: str
+    stock_name: str
+    investment_amount: float
+    current_value: float
+    profit_loss: float
+    profit_loss_percent: float
+    purchase_price: float
+    current_price: float
+    units: float
+    currency: str
+
+
 class PortfolioSummary(BaseModel):
-    """Portföy özeti"""
+    """Portföy özeti (Combined: funds + stocks)"""
     total_investment: float = Field(..., description="Toplam yatırım")
     current_value: float = Field(..., description="Güncel değer")
     total_profit_loss: float = Field(..., description="Toplam kar/zarar")
     profit_loss_percent: float = Field(..., description="Kar/zarar yüzdesi")
     daily_change: float = Field(..., description="Günlük değişim")
     funds: List[FundDetail] = Field(default_factory=list, description="Fonların detaylı bilgisi")
+    stocks: List[StockDetail] = Field(default_factory=list, description="Hisselerin detaylı bilgisi")
 
 
 class GeminiRequest(BaseModel):

@@ -12,6 +12,9 @@ from models import (
     FundInvestment,
     FundPrice,
     FundDetail,
+    StockInvestment,
+    StockPrice,
+    StockDetail,
     PortfolioSummary,
     GeminiRequest,
     GeminiResponse,
@@ -25,6 +28,7 @@ from models import (
     EmailResponse
 )
 from tefas_crawler import TEFASCrawler
+from stock_service import stock_service
 from gemini_service import GeminiService
 from enhanced_gemini_service import EnhancedGeminiService
 from supabase_service import SupabaseService
@@ -148,21 +152,114 @@ async def search_funds(query: Optional[str] = ""):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/portfolio/calculate")
-async def calculate_portfolio(investments: List[FundInvestment]):
+# Stock Endpoints
+@app.get("/api/stocks/price/{symbol}", response_model=StockPrice)
+async def get_stock_price(symbol: str, date: Optional[str] = None):
     """
-    Portföy kar/zarar hesaplama
+    Get stock price (current or historical)
 
     Args:
-        investments: Kullanıcının fon yatırımları listesi
+        symbol: Yahoo Finance symbol (e.g., "THYAO.IS", "AAPL")
+        date: Optional date (YYYY-MM-DD)
+
+    Returns:
+        Stock price information including symbol, name, price, currency, date
+    """
+    try:
+        result = stock_service.get_stock_price(symbol, date)
+
+        if not result:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Stock not found: {symbol}"
+            )
+
+        return StockPrice(
+            symbol=result['symbol'],
+            stock_name=result['stock_name'],
+            price=result['price'],
+            currency=result['currency'],
+            date=result['date'],
+            change_percent=None
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/stocks/history/{symbol}")
+async def get_stock_history(symbol: str, days: int = 30):
+    """
+    Get stock price history
+
+    Args:
+        symbol: Stock symbol
+        days: Number of days of history (default: 30)
+
+    Returns:
+        Historical price data
+    """
+    try:
+        history = stock_service.get_stock_history(symbol, days)
+
+        return {
+            "symbol": symbol,
+            "days": days,
+            "count": len(history),
+            "history": history
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/stocks/search")
+async def search_stocks(query: Optional[str] = ""):
+    """
+    Search for stocks
+
+    Args:
+        query: Search term (empty to list common stocks)
+
+    Returns:
+        List of stock suggestions
+    """
+    try:
+        stocks = stock_service.search_stocks(query)
+        return {
+            "query": query,
+            "count": len(stocks),
+            "stocks": stocks
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/portfolio/calculate")
+async def calculate_portfolio(
+    fund_investments: List[FundInvestment] = [],
+    stock_investments: List[StockInvestment] = []
+):
+    """
+    Combined portfolio profit/loss calculation (funds + stocks)
+
+    Args:
+        fund_investments: User's fund investments
+        stock_investments: User's stock investments
+
+    Returns:
+        Combined portfolio summary with funds and stocks
     """
     try:
         total_investment = 0
         total_current_value = 0
         funds_detail = []
+        stocks_detail = []
 
-        for investment in investments:
-            # Her fon için kar/zarar hesapla
+        # Process fund investments
+        for investment in fund_investments:
             result = tefas_crawler.calculate_profit_loss(
                 fund_code=investment.fund_code,
                 purchase_price=investment.purchase_price,
@@ -170,7 +267,6 @@ async def calculate_portfolio(investments: List[FundInvestment]):
             )
 
             if 'error' in result:
-                # Hata varsa atla
                 continue
 
             total_investment += investment.investment_amount
@@ -188,11 +284,39 @@ async def calculate_portfolio(investments: List[FundInvestment]):
                 units=result['units']
             ))
 
+        # Process stock investments
+        for investment in stock_investments:
+            result = stock_service.calculate_profit_loss(
+                symbol=investment.symbol,
+                purchase_price=investment.purchase_price,
+                purchase_amount=investment.investment_amount
+            )
+
+            if 'error' in result:
+                continue
+
+            total_investment += investment.investment_amount
+            total_current_value += result['current_value']
+
+            stocks_detail.append(StockDetail(
+                symbol=result['symbol'],
+                stock_name=result['stock_name'],
+                investment_amount=investment.investment_amount,
+                current_value=result['current_value'],
+                profit_loss=result['profit_loss'],
+                profit_loss_percent=result['profit_loss_percent'],
+                purchase_price=investment.purchase_price,
+                current_price=result['current_price'],
+                units=result['units'],
+                currency=result['currency']
+            ))
+
+        # Calculate totals
         total_profit_loss = total_current_value - total_investment
         profit_loss_percent = (total_profit_loss / total_investment * 100) if total_investment > 0 else 0
 
-        # Günlük değişim hesaplama (basitleştirilmiş)
-        daily_change = 0  # Bu kısmı geçmiş verilerle daha detaylı hesaplayabilirsin
+        # Daily change (simplified)
+        daily_change = 0
 
         summary = PortfolioSummary(
             total_investment=round(total_investment, 2),
@@ -200,10 +324,13 @@ async def calculate_portfolio(investments: List[FundInvestment]):
             total_profit_loss=round(total_profit_loss, 2),
             profit_loss_percent=round(profit_loss_percent, 2),
             daily_change=daily_change,
-            funds=funds_detail
+            funds=funds_detail,
+            stocks=stocks_detail
         )
+
         await supabase_service.record_portfolio_snapshot(summary)
         return summary
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

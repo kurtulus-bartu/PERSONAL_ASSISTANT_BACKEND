@@ -27,3 +27,6 @@ supabase==2.6.0
 
 # Email (Resend for production, SMTP for local)
 resend==2.4.0
+
+# Stock Market Data
+yfinance==0.2.36
