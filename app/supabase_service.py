@@ -1,7 +1,8 @@
 import asyncio
 import os
 from datetime import date, datetime, timedelta, timezone
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from fastapi import HTTPException
 from supabase import Client, create_client
@@ -524,6 +525,77 @@ class SupabaseService:
         if "workoutEntries" in data:
             self._save_workout_entries(user_id, data["workoutEntries"])
 
+    def has_ai_suggestions_for_date(
+        self,
+        user_id: str,
+        target_date: str,
+        suggestion_type: Optional[str] = None
+    ) -> bool:
+        """Belirli gün için öneri var mı kontrol eder"""
+        if not self.client:
+            return False
+
+        try:
+            query = self.client.table("ai_suggestions") \
+                .select("id") \
+                .eq("user_id", user_id) \
+                .eq("metadata->>forDate", target_date)
+            if suggestion_type:
+                query = query.eq("type", suggestion_type)
+            response = query.execute()
+            return bool(response.data)
+        except Exception:
+            return False
+
+    def save_ai_suggestions(
+        self,
+        user_id: str,
+        suggestions: List[Dict],
+        target_date: Optional[str] = None,
+        source: str = "daily_suggestions"
+    ) -> int:
+        """AI önerilerini Supabase'e kaydeder"""
+        if not self.client:
+            raise Exception("Supabase client not initialized")
+
+        rows = []
+        timestamp = datetime.now(timezone.utc).isoformat()
+
+        for suggestion in suggestions:
+            suggestion_type = (suggestion.get("type") or "note").strip()
+            description = (suggestion.get("description") or "").strip()
+            if not description:
+                continue
+
+            metadata = suggestion.get("metadata") or {}
+            if target_date:
+                metadata.setdefault("date", target_date)
+                metadata.setdefault("forDate", target_date)
+            metadata.setdefault("source", source)
+
+            seed = metadata.get("title") or metadata.get("mealType") or description
+            if target_date:
+                suggestion_id = str(
+                    uuid5(NAMESPACE_URL, f"{user_id}:{target_date}:{suggestion_type}:{seed}")
+                )
+            else:
+                suggestion_id = str(uuid4())
+
+            rows.append({
+                "id": suggestion_id,
+                "user_id": user_id,
+                "type": suggestion_type,
+                "description": description,
+                "status": "pending",
+                "metadata": metadata,
+                "timestamp": timestamp
+            })
+
+        if rows:
+            self.client.table("ai_suggestions").upsert(rows, on_conflict="id").execute()
+
+        return len(rows)
+
     def _save_fund_investments(self, user_id: str, investments: List[Dict]) -> None:
         """Fon yatırımlarını kaydet"""
         rows = [
@@ -979,3 +1051,163 @@ class SupabaseService:
             chunk = duplicates[:100]
             duplicates = duplicates[100:]
             self.client.table(table).delete().in_("id", chunk).execute()
+
+    # -------------------------------------------------------------------------
+    # Cron Job Support Methods
+    # -------------------------------------------------------------------------
+
+    def get_all_user_ids(self) -> List[str]:
+        """Get all unique user IDs from database"""
+        if not self.client:
+            return []
+
+        try:
+            # Get unique user_ids from planner_events table
+            response = self.client.table("planner_events").select("user_id").execute()
+            user_ids = set()
+            for row in response.data:
+                if row.get("user_id"):
+                    user_ids.add(row["user_id"])
+            return list(user_ids)
+        except Exception as e:
+            print(f"Error getting all user IDs: {str(e)}")
+            return []
+
+    def get_user_data_for_ai(self, user_id: str) -> Dict[str, Any]:
+        """Get user data for AI processing"""
+        if not self.client:
+            return {}
+
+        try:
+            data = {}
+
+            # Get tasks and events
+            events_response = self.client.table("planner_events").select("*").eq("user_id", user_id).execute()
+            data["tasks"] = [e for e in events_response.data if e.get("is_task")]
+            data["events"] = [e for e in events_response.data if not e.get("is_task")]
+
+            # Get notes
+            notes_response = self.client.table("notes").select("*").eq("user_id", user_id).execute()
+            data["notes"] = notes_response.data
+
+            # Get health entries
+            health_response = self.client.table("health_entries").select("*").eq("user_id", user_id).execute()
+            data["health_entries"] = health_response.data
+
+            return data
+        except Exception as e:
+            print(f"Error getting user data for AI: {str(e)}")
+            return {}
+
+    def get_user_email_settings(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """Get user email settings"""
+        if not self.client:
+            return None
+
+        try:
+            response = self.client.table("user_settings").select("*").eq("user_id", user_id).eq("key", "email_settings").execute()
+            if response.data:
+                return response.data[0].get("value", {})
+            return None
+        except Exception as e:
+            print(f"Error getting user email settings: {str(e)}")
+            return None
+
+    def was_friend_email_sent_today(self, user_id: str) -> bool:
+        """Check if friend email was sent today"""
+        if not self.client:
+            return False
+
+        try:
+            today = datetime.now().strftime("%Y-%m-%d")
+            response = self.client.table("email_log").select("*").eq("user_id", user_id).eq("email_type", "friend_summary").eq("sent_date", today).execute()
+            return len(response.data) > 0
+        except Exception as e:
+            print(f"Error checking friend email status: {str(e)}")
+            return False
+
+    def was_personal_email_sent_today(self, user_id: str) -> bool:
+        """Check if personal email was sent today"""
+        if not self.client:
+            return False
+
+        try:
+            today = datetime.now().strftime("%Y-%m-%d")
+            response = self.client.table("email_log").select("*").eq("user_id", user_id).eq("email_type", "personal_summary").eq("sent_date", today).execute()
+            return len(response.data) > 0
+        except Exception as e:
+            print(f"Error checking personal email status: {str(e)}")
+            return False
+
+    def mark_friend_email_sent(self, user_id: str):
+        """Mark friend email as sent for today"""
+        if not self.client:
+            return
+
+        try:
+            today = datetime.now().strftime("%Y-%m-%d")
+            self.client.table("email_log").insert({
+                "id": str(uuid4()),
+                "user_id": user_id,
+                "email_type": "friend_summary",
+                "sent_date": today,
+                "sent_at": datetime.now().isoformat()
+            }).execute()
+        except Exception as e:
+            print(f"Error marking friend email as sent: {str(e)}")
+
+    def mark_personal_email_sent(self, user_id: str):
+        """Mark personal email as sent for today"""
+        if not self.client:
+            return
+
+        try:
+            today = datetime.now().strftime("%Y-%m-%d")
+            self.client.table("email_log").insert({
+                "id": str(uuid4()),
+                "user_id": user_id,
+                "email_type": "personal_summary",
+                "sent_date": today,
+                "sent_at": datetime.now().isoformat()
+            }).execute()
+        except Exception as e:
+            print(f"Error marking personal email as sent: {str(e)}")
+
+    def get_user_tasks_for_today(self, user_id: str) -> List[Dict[str, Any]]:
+        """Get user's tasks for today"""
+        if not self.client:
+            return []
+
+        try:
+            today = datetime.now().strftime("%Y-%m-%d")
+            response = self.client.table("planner_events").select("*").eq("user_id", user_id).eq("is_task", True).gte("date", today).lte("date", today).execute()
+            return response.data
+        except Exception as e:
+            print(f"Error getting user tasks: {str(e)}")
+            return []
+
+    def get_user_tasks_and_events_for_today(self, user_id: str) -> List[Dict[str, Any]]:
+        """Get user's tasks and events for today"""
+        if not self.client:
+            return []
+
+        try:
+            today = datetime.now().strftime("%Y-%m-%d")
+            response = self.client.table("planner_events").select("*").eq("user_id", user_id).gte("date", today).lte("date", today).execute()
+            return response.data
+        except Exception as e:
+            print(f"Error getting user tasks and events: {str(e)}")
+            return []
+
+    def get_user_meals_for_today(self, user_id: str) -> List[Dict[str, Any]]:
+        """Get user's meals for today"""
+        if not self.client:
+            return []
+
+        try:
+            today = datetime.now().strftime("%Y-%m-%d")
+            response = self.client.table("meal_entries").select("*").eq("user_id", user_id).gte("date", today).lte("date", today).execute()
+            return response.data
+        except Exception as e:
+            print(f"Error getting user meals: {str(e)}")
+            return []

@@ -390,6 +390,251 @@ class EmailService:
 
         return html
 
+    def send_personal_summary(
+        self,
+        user_email: str,
+        user_name: str,
+        tasks: List[Dict[str, Any]],
+        meals: List[Dict[str, Any]],
+        date: str = None
+    ) -> bool:
+        """
+        Send personal daily summary email to user
+
+        Args:
+            user_email: User's email address
+            user_name: User's name
+            tasks: List of tasks and events for today
+            meals: List of meals for today
+            date: Date string (defaults to today)
+
+        Returns:
+            True if email sent successfully, False otherwise
+        """
+        if not self.is_configured:
+            print("⚠️  Email service not configured.")
+            return False
+
+        if date is None:
+            date = datetime.now().strftime("%d.%m.%Y")
+
+        # Create email content
+        subject = f"🌅 Günlük Özet - {date}"
+
+        # Build HTML email body
+        html_body = self._build_personal_summary_html(
+            user_name=user_name,
+            tasks=tasks,
+            meals=meals,
+            date=date
+        )
+
+        # Send via Resend or SMTP
+        if self.use_resend:
+            return self._send_via_resend(user_email, subject, html_body)
+        else:
+            return self._send_via_smtp(user_email, subject, html_body)
+
+    def _build_personal_summary_html(
+        self,
+        user_name: str,
+        tasks: List[Dict[str, Any]],
+        meals: List[Dict[str, Any]],
+        date: str
+    ) -> str:
+        """Build personal summary HTML email body"""
+
+        html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                body {{
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+                    line-height: 1.6;
+                    color: #333;
+                    max-width: 600px;
+                    margin: 0 auto;
+                    padding: 20px;
+                    background-color: #f5f5f5;
+                }}
+                .container {{
+                    background-color: white;
+                    border-radius: 12px;
+                    padding: 30px;
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+                }}
+                .header {{
+                    text-align: center;
+                    padding-bottom: 20px;
+                    border-bottom: 2px solid #f0f0f0;
+                    margin-bottom: 30px;
+                }}
+                .header h1 {{
+                    margin: 0;
+                    color: #2c3e50;
+                    font-size: 28px;
+                }}
+                .greeting {{
+                    font-size: 18px;
+                    color: #555;
+                    margin-top: 10px;
+                }}
+                .section {{
+                    margin: 25px 0;
+                }}
+                .section-title {{
+                    font-size: 20px;
+                    font-weight: 600;
+                    color: #2c3e50;
+                    margin-bottom: 15px;
+                    display: flex;
+                    align-items: center;
+                }}
+                .section-title .icon {{
+                    margin-right: 8px;
+                    font-size: 24px;
+                }}
+                .item-list {{
+                    list-style: none;
+                    padding: 0;
+                    margin: 0;
+                }}
+                .item {{
+                    background-color: #f8f9fa;
+                    border-left: 4px solid #3498db;
+                    padding: 15px;
+                    margin-bottom: 12px;
+                    border-radius: 6px;
+                }}
+                .item.task {{
+                    border-left-color: #3498db;
+                }}
+                .item.event {{
+                    border-left-color: #9b59b6;
+                }}
+                .item.meal {{
+                    border-left-color: #e74c3c;
+                }}
+                .item-title {{
+                    font-weight: 600;
+                    font-size: 16px;
+                    color: #2c3e50;
+                    margin-bottom: 5px;
+                }}
+                .item-details {{
+                    font-size: 14px;
+                    color: #666;
+                }}
+                .footer {{
+                    text-align: center;
+                    margin-top: 30px;
+                    padding-top: 20px;
+                    border-top: 2px solid #f0f0f0;
+                    color: #999;
+                    font-size: 13px;
+                }}
+                .empty {{
+                    text-align: center;
+                    color: #999;
+                    font-style: italic;
+                    padding: 20px;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>🌅 Günlük Özet</h1>
+                    <div class="greeting">Merhaba {user_name}! İşte bugünün planı:</div>
+                    <div style="margin-top: 10px; color: #888; font-size: 14px;">{date}</div>
+                </div>
+        """
+
+        # Görevler ve Etkinlikler
+        html += """
+                <div class="section">
+                    <div class="section-title">
+                        <span class="icon">📋</span>
+                        Görevler ve Etkinlikler
+                    </div>
+        """
+
+        if tasks:
+            html += '<ul class="item-list">'
+            for task in tasks:
+                is_task = task.get("is_task", True)
+                item_type = "task" if is_task else "event"
+                title = task.get("title", "Başlıksız")
+                notes = task.get("notes", "")
+                time_str = ""
+
+                if not is_task and task.get("start_time"):
+                    time_str = f" • {task['start_time']}"
+
+                html += f'''
+                    <li class="item {item_type}">
+                        <div class="item-title">{"✓" if is_task else "📅"} {title}{time_str}</div>
+                '''
+
+                if notes:
+                    html += f'<div class="item-details">{notes}</div>'
+
+                html += '</li>'
+
+            html += '</ul>'
+        else:
+            html += '<div class="empty">Bugün için görev veya etkinlik yok</div>'
+
+        html += '</div>'
+
+        # Yemekler
+        html += """
+                <div class="section">
+                    <div class="section-title">
+                        <span class="icon">🍽️</span>
+                        Günlük Menü
+                    </div>
+        """
+
+        if meals:
+            html += '<ul class="item-list">'
+            for meal in meals:
+                meal_type = meal.get("meal_type", "Yemek")
+                description = meal.get("description", "")
+                calories = meal.get("calories", 0)
+
+                html += f'''
+                    <li class="item meal">
+                        <div class="item-title">{meal_type}</div>
+                        <div class="item-details">{description}</div>
+                '''
+
+                if calories > 0:
+                    html += f'<div class="item-details" style="margin-top: 5px;">🔥 {calories} kcal</div>'
+
+                html += '</li>'
+
+            html += '</ul>'
+        else:
+            html += '<div class="empty">Bugün için yemek kaydı yok</div>'
+
+        html += '</div>'
+
+        # Footer
+        html += """
+                <div class="footer">
+                    Bu e-posta Personal Assistant uygulamanız tarafından otomatik olarak gönderilmiştir.
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+
+        return html
+
 
 # Singleton instance
 email_service = EmailService()

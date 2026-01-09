@@ -232,3 +232,32 @@ class EmailResponse(BaseModel):
     sent_count: int = Field(0, description="Number of emails sent successfully")
     failed_count: int = Field(0, description="Number of failed emails")
     details: List[Dict[str, Any]] = Field(default_factory=list, description="Details for each recipient")
+
+
+# -------------------------------------------------------------------------
+# Daily Suggestions Models
+# -------------------------------------------------------------------------
+
+
+class DailySuggestionsRequest(BaseModel):
+    """Request to generate daily AI suggestions"""
+    target_date: Optional[str] = Field(
+        None,
+        description="Target date in YYYY-MM-DD format (defaults to tomorrow)"
+    )
+    include_general: bool = Field(
+        True,
+        description="Also generate a general non-meal suggestion"
+    )
+    force: bool = Field(
+        False,
+        description="Regenerate even if suggestions already exist for the date"
+    )
+
+
+class DailySuggestionsResponse(BaseModel):
+    """Response for daily suggestions generation"""
+    success: bool = Field(..., description="Whether generation succeeded")
+    saved_count: int = Field(0, description="Number of suggestions saved")
+    skipped: bool = Field(False, description="Whether generation was skipped")
+    message: Optional[str] = Field(None, description="Optional status message")
