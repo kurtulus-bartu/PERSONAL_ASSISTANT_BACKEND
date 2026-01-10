@@ -596,6 +596,41 @@ class SupabaseService:
 
         return len(rows)
 
+    def save_ai_memories(
+        self,
+        user_id: str,
+        memories: List[Dict]
+    ) -> int:
+        """AI hafızalarını Supabase'e kaydeder"""
+        if not self.client:
+            raise Exception("Supabase client not initialized")
+
+        rows = []
+        timestamp = datetime.now(timezone.utc).isoformat()
+
+        for memory in memories:
+            content = (memory.get("content") or "").strip()
+            if not content:
+                continue
+
+            category = (memory.get("category") or "general").strip()
+
+            # Create unique ID based on content to avoid duplicates
+            memory_id = str(uuid5(NAMESPACE_URL, f"{user_id}:{category}:{content}"))
+
+            rows.append({
+                "id": memory_id,
+                "user_id": user_id,
+                "content": content,
+                "category": category,
+                "timestamp": timestamp
+            })
+
+        if rows:
+            self.client.table("ai_memory_items").upsert(rows, on_conflict="id").execute()
+
+        return len(rows)
+
     def _save_fund_investments(self, user_id: str, investments: List[Dict]) -> None:
         """Fon yatırımlarını kaydet"""
         rows = [

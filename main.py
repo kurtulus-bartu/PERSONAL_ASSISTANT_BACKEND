@@ -84,19 +84,61 @@ def get_enhanced_gemini_service() -> EnhancedGeminiService:
     return EnhancedGeminiService(api_key=api_key)
 
 
-DAILY_SUGGESTIONS_SYSTEM_PROMPT = """Sen bir beslenme koçusun ve kullanıcıya yarın için yemek önerileri çıkarıyorsun.
+DAILY_SUGGESTIONS_SYSTEM_PROMPT = """Sen kullanıcının kişisel asistanısın ve ona günlük öneriler sunuyorsun.
+
+ROL VE AMAÇ:
+- Kullanıcının verilerini analiz et (yemekler, görevler, notlar, sağlık, uyku, egzersiz, hafıza)
+- Hafızandaki bilgileri kullanarak kişiselleştirilmiş öneriler sun
+- Sağlıklı beslenme, verimli zaman yönetimi ve iyi yaşam alışkanlıkları konusunda rehberlik et
+- Kullanıcının ilgi alanlarını, tercihlerini ve hedeflerini göz önünde bulundur
+
+ÖNERİ TİPLERİ:
+1. **meal** - Öğün önerileri (Kahvaltı, Öğle, Akşam, Atıştırmalık)
+   - Metadata: mealType, date, calories, title, notes
+
+2. **task** - Görev önerileri (yapılacaklar, hatırlatmalar)
+   - Metadata: title, date, time, durationMinutes, notes, priority
+
+3. **event** - Etkinlik önerileri (spor, sosyal aktiviteler, hobiler)
+   - Metadata: title, date, time, durationMinutes, notes, location
+
+4. **note** - Not önerileri (fikirlerde, öğrenme, hatırlatmalar)
+   - Metadata: title, date, category, notes
+
+ÖNERİ STRATEJİSİ:
+- **Yemek**: En az 3 öğün (Kahvaltı, Öğle, Akşam) öner. Günlük kalori dengesine dikkat et.
+- **Görevler**: Tamamlanmamış görevleri hatırlat, yeni görev öner, mevcut görevlere not/tag ekle
+- **Etkinlikler**: Boş zaman dilimlerinde aktivite öner (spor, yürüyüş, sosyalleşme)
+- **Notlar**: Öğrenilen bilgileri not almayı öner, fikir gelişimi için notlar ekle
+
+HAFIZA KULLANIMI:
+- AI hafızandaki bilgileri (ai_memories) mutlaka kullan
+- Kullanıcının geçmiş tercihleri, hedefleri, alerjileri, sevdiği/sevmediği yemekleri dikkate al
+- Önceki önerilere göre yeni öneriler oluştur
+
+YENİ HAFIZA EKLEVERİLERİ:
+- Öğrendiğin önemli bilgileri MEMORY tag'i ile kaydet:
+  <MEMORY category="preference">Kullanıcı sabahları protein ağırlıklı kahvaltı yapıyor</MEMORY>
+  <MEMORY category="goal">Haftada 3 gün spor yapma hedefi var</MEMORY>
+  <MEMORY category="health">Laktozu iyi tolere edemiyor</MEMORY>
 
 ÇIKTI KURALLARI:
-- SADECE SUGGESTION tagları yaz. Başka metin ekleme.
-- Format:
-  <SUGGESTION type="meal">ACIKLAMA [metadata:mealType=Kahvaltı,date=YYYY-MM-DD,calories=450,title=...,notes=...]</SUGGESTION>
-  <SUGGESTION type="task">ACIKLAMA [metadata:title=...,date=YYYY-MM-DD,durationMinutes=30,notes=...]</SUGGESTION>
-- Metadata değerlerinde virgül kullanma. Gerekirse '-' kullan.
-- calories sadece sayı olsun (kcal yazma).
-- date mutlaka hedef tarih (YYYY-MM-DD) olmalı.
-- Yemek önerileri Türkçe, kısa ve net olmalı.
-- En az 3 öğün (Kahvaltı, Öğle, Akşam) öner. İstersen Atıştırmalık ekleyebilirsin.
-- include_general true ise 1 adet task önerisi ekle.
+- SADECE SUGGESTION ve MEMORY tagları yaz. Başka metin ekleme.
+- Format örnekleri:
+  <SUGGESTION type="meal">ACIKLAMA [metadata:mealType=Kahvaltı,date=YYYY-MM-DD,calories=450,title=Menemen ve Yulaf,notes=Protein ağırlıklı]</SUGGESTION>
+  <SUGGESTION type="task">ACIKLAMA [metadata:title=Proje raporunu tamamla,date=YYYY-MM-DD,time=14:00,durationMinutes=90,priority=high]</SUGGESTION>
+  <SUGGESTION type="event">ACIKLAMA [metadata:title=Yüzme,date=YYYY-MM-DD,time=18:00,durationMinutes=60,location=Spor salonu]</SUGGESTION>
+  <SUGGESTION type="note">ACIKLAMA [metadata:title=Kitap notları,date=YYYY-MM-DD,category=Öğrenme]</SUGGESTION>
+  <MEMORY category="preference">Kullanıcı akşamları hafif yemek tercih ediyor</MEMORY>
+
+KURALLAR:
+- Metadata değerlerinde virgül kullanma (gerekirse tire veya ve kullan)
+- calories sadece sayı olsun (örn: 450, kcal yazma)
+- date mutlaka hedef tarih (YYYY-MM-DD) formatında
+- time formatı: HH:MM (örn: 09:00, 14:30)
+- Türkçe, kısa ve net ol
+- Her öneride fayda/değer sun, boş öneri verme
+- Hafızadaki bilgileri kullanmayı unutma!
 """
 
 
@@ -109,19 +151,26 @@ def _parse_iso_date(value: str) -> Optional[datetime]:
 
 
 def _build_daily_suggestions_context(backup_data: Dict[str, Any]) -> str:
+    """Build comprehensive context for AI suggestions including all user data"""
+
+    # Extract all data types
     meals = backup_data.get("mealEntries", [])
     health = backup_data.get("healthEntries", [])
     sleep = backup_data.get("sleepEntries", [])
     workouts = backup_data.get("workoutEntries", [])
+    tasks = backup_data.get("tasks", [])
+    notes = backup_data.get("notes", [])
+    ai_memories = backup_data.get("aiMemories", [])
+    ai_suggestions = backup_data.get("aiSuggestions", [])
 
     def meal_key(entry: Dict[str, Any]) -> datetime:
         raw = str(entry.get("date", ""))
         parsed = _parse_iso_date(raw) or datetime.min
         return parsed
 
+    # Recent meals (last 20)
     meals_sorted = sorted(meals, key=meal_key)
     recent_meals = meals_sorted[-20:]
-
     compact_meals = [
         {
             "date": str(m.get("date", ""))[:10],
@@ -132,6 +181,7 @@ def _build_daily_suggestions_context(backup_data: Dict[str, Any]) -> str:
         for m in recent_meals
     ]
 
+    # Calculate average daily calories
     calories_by_day: Dict[str, float] = {}
     for meal in compact_meals:
         day = meal.get("date") or ""
@@ -141,6 +191,7 @@ def _build_daily_suggestions_context(backup_data: Dict[str, Any]) -> str:
         0
     )
 
+    # Recent health data (last 7 days)
     compact_health = [
         {
             "date": str(h.get("date", ""))[:10],
@@ -152,6 +203,7 @@ def _build_daily_suggestions_context(backup_data: Dict[str, Any]) -> str:
         for h in health[-7:]
     ]
 
+    # Recent sleep data (last 7 days)
     compact_sleep = [
         {
             "date": str(s.get("date", ""))[:10],
@@ -160,6 +212,7 @@ def _build_daily_suggestions_context(backup_data: Dict[str, Any]) -> str:
         for s in sleep[-7:]
     ]
 
+    # Recent workouts (last 7 days)
     compact_workouts = [
         {
             "date": str(w.get("date", ""))[:10],
@@ -169,12 +222,59 @@ def _build_daily_suggestions_context(backup_data: Dict[str, Any]) -> str:
         for w in workouts[-7:]
     ]
 
+    # Pending/incomplete tasks
+    pending_tasks = [
+        {
+            "title": t.get("title", ""),
+            "completed": t.get("completed", False),
+            "priority": t.get("priority", "medium"),
+            "dueDate": str(t.get("dueDate", ""))[:10] if t.get("dueDate") else None,
+            "tags": t.get("tags", [])
+        }
+        for t in tasks
+        if not t.get("completed", False)
+    ][:15]  # Limit to 15 pending tasks
+
+    # Recent notes (last 10)
+    recent_notes = [
+        {
+            "title": n.get("title", ""),
+            "content": (n.get("content", "") or "")[:200],  # First 200 chars
+            "createdAt": str(n.get("createdAt", ""))[:10]
+        }
+        for n in notes[-10:]
+    ]
+
+    # AI Memories (all)
+    memories = [
+        {
+            "category": m.get("category", "general"),
+            "content": m.get("content", "")
+        }
+        for m in ai_memories
+    ]
+
+    # Recent accepted suggestions (last 5)
+    accepted_suggestions = [
+        {
+            "type": s.get("type", ""),
+            "description": (s.get("description", "") or "")[:100],
+            "status": s.get("status", "")
+        }
+        for s in ai_suggestions
+        if s.get("status") == "accepted"
+    ][-5:]
+
     context = {
         "recent_meals": compact_meals,
         "avg_daily_calories": avg_daily_calories,
         "recent_health": compact_health,
         "recent_sleep": compact_sleep,
-        "recent_workouts": compact_workouts
+        "recent_workouts": compact_workouts,
+        "pending_tasks": pending_tasks,
+        "recent_notes": recent_notes,
+        "ai_memories": memories,
+        "accepted_suggestions": accepted_suggestions
     }
 
     return json.dumps(context, ensure_ascii=False)
@@ -768,11 +868,13 @@ async def send_daily_summary(request: DailySummaryRequest):
 # CRON JOB ENDPOINTS
 # ============================================================================
 
-@app.post("/api/cron/daily-check")
-async def cron_daily_check():
+@app.post("/api/cron/hourly-check")
+async def cron_hourly_check():
     """
-    CronJob endpoint - Called every 5 minutes
-    - Generates daily AI suggestions for all users (skips if already generated)
+    CronJob endpoint - Called every hour
+    - Generates AI suggestions for all users (meals, tasks, events, notes)
+    - Can generate multiple times per day
+    - Learns from user data and stores memories
     """
     try:
         # Get all unique user IDs from database
@@ -780,14 +882,17 @@ async def cron_daily_check():
 
         processed_count = 0
         errors = []
-        target_date = (datetime.now() + timedelta(days=1)).date().isoformat()
+        # Generate suggestions for today (not tomorrow)
+        target_date = datetime.now().date().isoformat()
 
         for user_id in all_user_ids:
             try:
-                # Generate AI suggestions (if not already generated for target date)
+                # Generate AI suggestions with force=True to allow multiple runs per day
                 await generate_ai_suggestions_for_user(
                     user_id=user_id,
-                    target_date=target_date
+                    target_date=target_date,
+                    include_general=True,  # Include all types: meals, tasks, events, notes
+                    force=True  # Allow multiple suggestions per day
                 )
 
                 processed_count += 1
@@ -802,11 +907,19 @@ async def cron_daily_check():
             "success": True,
             "processed_users": processed_count,
             "total_users": len(all_user_ids),
+            "target_date": target_date,
             "errors": errors
         }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# Keep old endpoint for backward compatibility
+@app.post("/api/cron/daily-check")
+async def cron_daily_check():
+    """Legacy endpoint - redirects to hourly-check"""
+    return await cron_hourly_check()
 
 
 async def generate_ai_suggestions_for_user(
@@ -935,6 +1048,19 @@ async def _generate_daily_suggestions_for_user(
 
     parsed = parse_suggestions_and_memories(response_text or "")
     suggestions = parsed.get("suggestions", [])
+    memories = parsed.get("memories", [])
+
+    # Save AI memories first (if any)
+    memory_count = 0
+    if memories:
+        try:
+            memory_count = supabase_service.save_ai_memories(
+                user_id=user_id,
+                memories=memories
+            )
+            print(f"✅ Saved {memory_count} AI memories for user {user_id}")
+        except Exception as e:
+            print(f"⚠️ Error saving AI memories: {str(e)}")
 
     if not include_general:
         suggestions = [
@@ -947,7 +1073,7 @@ async def _generate_daily_suggestions_for_user(
             success=False,
             saved_count=0,
             skipped=False,
-            message="No suggestions generated."
+            message=f"No suggestions generated. Saved {memory_count} memories."
         )
 
     saved_count = supabase_service.save_ai_suggestions(
@@ -961,7 +1087,7 @@ async def _generate_daily_suggestions_for_user(
         success=True,
         saved_count=saved_count,
         skipped=False,
-        message="Suggestions saved."
+        message=f"Saved {saved_count} suggestions and {memory_count} memories."
     )
 
 
