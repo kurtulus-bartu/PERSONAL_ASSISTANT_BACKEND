@@ -1061,17 +1061,19 @@ class SupabaseService:
         if not self.client:
             return []
 
-        try:
-            # Get unique user_ids from planner_events table
-            response = self.client.table("planner_events").select("user_id").execute()
-            user_ids = set()
-            for row in response.data:
-                if row.get("user_id"):
-                    user_ids.add(row["user_id"])
-            return list(user_ids)
-        except Exception as e:
-            print(f"Error getting all user IDs: {str(e)}")
-            return []
+        user_ids = set()
+        tables = ["tasks", "notes", "meal_entries", "health_entries"]
+
+        for table in tables:
+            try:
+                response = self.client.table(table).select("user_id").execute()
+                for row in (response.data or []):
+                    if row.get("user_id"):
+                        user_ids.add(row["user_id"])
+            except Exception as e:
+                print(f"Error getting user IDs from {table}: {str(e)}")
+
+        return list(user_ids)
 
     def get_user_data_for_ai(self, user_id: str) -> Dict[str, Any]:
         """Get user data for AI processing"""

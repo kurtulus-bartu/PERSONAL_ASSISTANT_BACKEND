@@ -629,75 +629,13 @@ async def daily_suggestions(
     for the next day and save them in Supabase.
     """
     try:
-        target_date = request.target_date
-        if target_date:
-            parsed_date = _parse_iso_date(target_date)
-            if parsed_date:
-                target_date = parsed_date.date().isoformat()
-        else:
-            target_date = (datetime.now() + timedelta(days=1)).date().isoformat()
-
-        include_general = bool(request.include_general)
-
-        if not request.force:
-            already_exists = supabase_service.has_ai_suggestions_for_date(
-                user_id=x_user_id,
-                target_date=target_date
-            )
-            if already_exists:
-                return DailySuggestionsResponse(
-                    success=True,
-                    saved_count=0,
-                    skipped=True,
-                    message="Suggestions already exist for target date."
-                )
-
-        backup_data = await supabase_service.get_backup_data(user_id=x_user_id)
-        context = _build_daily_suggestions_context(backup_data)
-
-        message = (
-            f"Hedef tarih: {target_date}.\n"
-            f"include_general: {'true' if include_general else 'false'}.\n"
-            "Lütfen bu kurala uy ve sadece SUGGESTION tag'larıyla yanıt ver."
-        )
-
-        service = get_gemini_service()
-        response_text = service.generate_response(
-            message=message,
-            context=context,
-            system_prompt=DAILY_SUGGESTIONS_SYSTEM_PROMPT
-        )
-
-        parsed = parse_suggestions_and_memories(response_text or "")
-        suggestions = parsed.get("suggestions", [])
-
-        if not include_general:
-            suggestions = [
-                suggestion for suggestion in suggestions
-                if (suggestion.get("type") or "").lower() == "meal"
-            ]
-
-        if not suggestions:
-            return DailySuggestionsResponse(
-                success=False,
-                saved_count=0,
-                skipped=False,
-                message="No suggestions generated."
-            )
-
-        saved_count = supabase_service.save_ai_suggestions(
+        result = await _generate_daily_suggestions_for_user(
             user_id=x_user_id,
-            suggestions=suggestions,
-            target_date=target_date,
-            source="daily_suggestions"
+            target_date=request.target_date,
+            include_general=request.include_general,
+            force=request.force
         )
-
-        return DailySuggestionsResponse(
-            success=True,
-            saved_count=saved_count,
-            skipped=False,
-            message="Suggestions saved."
-        )
+        return result
     except HTTPException:
         raise
     except Exception as e:
@@ -834,9 +772,7 @@ async def send_daily_summary(request: DailySummaryRequest):
 async def cron_daily_check():
     """
     CronJob endpoint - Called every 5 minutes
-    - Generates AI suggestions for all users
-    - Sends daily summary emails to friends (if not sent today)
-    - Sends personal summary email to user (if not sent today)
+    - Generates daily AI suggestions for all users (skips if already generated)
     """
     try:
         # Get all unique user IDs from database
@@ -844,17 +780,15 @@ async def cron_daily_check():
 
         processed_count = 0
         errors = []
+        target_date = (datetime.now() + timedelta(days=1)).date().isoformat()
 
         for user_id in all_user_ids:
             try:
-                # 1. Generate AI suggestions (if not already generated for today)
-                await generate_ai_suggestions_for_user(user_id)
-
-                # 2. Check and send friend emails
-                await check_and_send_friend_emails(user_id)
-
-                # 3. Check and send personal summary email
-                await check_and_send_personal_email(user_id)
+                # Generate AI suggestions (if not already generated for target date)
+                await generate_ai_suggestions_for_user(
+                    user_id=user_id,
+                    target_date=target_date
+                )
 
                 processed_count += 1
 
@@ -875,37 +809,20 @@ async def cron_daily_check():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-async def generate_ai_suggestions_for_user(user_id: str):
-    """Generate AI suggestions for a single user"""
+async def generate_ai_suggestions_for_user(
+    user_id: str,
+    target_date: Optional[str] = None,
+    include_general: bool = True,
+    force: bool = False
+):
+    """Generate daily suggestions for a single user"""
     try:
-        today = datetime.now().strftime("%Y-%m-%d")
-
-        # Check if suggestions already exist for today
-        if supabase_service.has_ai_suggestions_for_date(user_id, today):
-            return  # Skip if already generated
-
-        # Get user data
-        user_data = supabase_service.get_user_data_for_ai(user_id)
-
-        # Generate AI suggestions
-        service = get_enhanced_gemini_service()
-        prompt = generate_daily_ai_prompt(user_data)
-
-        _, _, suggestions, _ = service.chat(
-            message=prompt,
-            user_data=user_data,
-            conversation_history=[],
-            user_id=user_id
+        await _generate_daily_suggestions_for_user(
+            user_id=user_id,
+            target_date=target_date,
+            include_general=include_general,
+            force=force
         )
-
-        # Save suggestions
-        if suggestions:
-            supabase_service.save_ai_suggestions(
-                user_id=user_id,
-                suggestions=suggestions,
-                target_date=today
-            )
-
     except Exception as e:
         print(f"Error generating AI suggestions for user {user_id}: {str(e)}")
         raise
@@ -971,35 +888,81 @@ async def check_and_send_personal_email(user_id: str):
         print(f"Error sending personal email for user {user_id}: {str(e)}")
 
 
-def generate_daily_ai_prompt(user_data: Dict[str, Any]) -> str:
-    """Generate AI prompt for daily suggestions"""
-    today = datetime.now().strftime("%Y-%m-%d")
+async def _generate_daily_suggestions_for_user(
+    user_id: str,
+    target_date: Optional[str] = None,
+    include_general: bool = True,
+    force: bool = False
+) -> DailySuggestionsResponse:
+    resolved_date = target_date
+    if resolved_date:
+        parsed_date = _parse_iso_date(resolved_date)
+        if parsed_date:
+            resolved_date = parsed_date.date().isoformat()
+        else:
+            resolved_date = resolved_date[:10]
+    else:
+        resolved_date = (datetime.now() + timedelta(days=1)).date().isoformat()
 
-    prompt = f"""Sen bir yapay zeka asistanısın. Kullanıcının verilerini analiz ederek günlük öneriler üretiyorsun.
+    if not force:
+        already_exists = supabase_service.has_ai_suggestions_for_date(
+            user_id=user_id,
+            target_date=resolved_date
+        )
+        if already_exists:
+            return DailySuggestionsResponse(
+                success=True,
+                saved_count=0,
+                skipped=True,
+                message="Suggestions already exist for target date."
+            )
 
-Bugünün tarihi: {today}
+    backup_data = await supabase_service.get_backup_data(user_id=user_id)
+    context = _build_daily_suggestions_context(backup_data)
 
-Kullanıcının verileri:
-- Görevler: {len(user_data.get('tasks', []))} görev
-- Etkinlikler: {len(user_data.get('events', []))} etkinlik
-- Notlar: {len(user_data.get('notes', []))} not
-- Sağlık verileri: {len(user_data.get('health_entries', []))} kayıt
+    message = (
+        f"Hedef tarih: {resolved_date}.\n"
+        f"include_general: {'true' if include_general else 'false'}.\n"
+        "Lütfen bu kurala uy ve sadece SUGGESTION tag'larıyla yanıt ver."
+    )
 
-Lütfen kullanıcı için aşağıdaki önerileri oluştur:
+    service = get_gemini_service()
+    response_text = service.generate_response(
+        message=message,
+        context=context,
+        system_prompt=DAILY_SUGGESTIONS_SYSTEM_PROMPT
+    )
 
-1. **Görev Önerileri** (2-3 tane): Kullanıcının mevcut görevlerine ve alışkanlıklarına göre yeni görev önerileri
-2. **Etkinlik Önerileri** (1-2 tane): Kullanıcının programına uygun etkinlik önerileri
-3. **Genel Öneriler** (2-3 tane): Sağlık, verimlilik, yaşam kalitesi ile ilgili genel öneriler
+    parsed = parse_suggestions_and_memories(response_text or "")
+    suggestions = parsed.get("suggestions", [])
 
-Her öneri için:
-- type: "task", "event" veya "general"
-- content: Öneri içeriği (açıklayıcı ve net)
-- priority: "high", "medium" veya "low"
-- category: İlgili kategori
+    if not include_general:
+        suggestions = [
+            suggestion for suggestion in suggestions
+            if (suggestion.get("type") or "").lower() == "meal"
+        ]
 
-Lütfen önerileri JSON formatında döndür."""
+    if not suggestions:
+        return DailySuggestionsResponse(
+            success=False,
+            saved_count=0,
+            skipped=False,
+            message="No suggestions generated."
+        )
 
-    return prompt
+    saved_count = supabase_service.save_ai_suggestions(
+        user_id=user_id,
+        suggestions=suggestions,
+        target_date=resolved_date,
+        source="daily_suggestions"
+    )
+
+    return DailySuggestionsResponse(
+        success=True,
+        saved_count=saved_count,
+        skipped=False,
+        message="Suggestions saved."
+    )
 
 
 if __name__ == "__main__":
