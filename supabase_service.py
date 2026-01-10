@@ -671,7 +671,7 @@ class SupabaseService:
             {
                 "id": metric["id"],
                 "user_id": user_id,
-                "metric_date": metric["date"],
+                "date": metric["date"],
                 "total_investment": metric.get("totalInvestment", 0),
                 "current_value": metric.get("currentValue", 0),
                 "profit_loss": metric.get("profitLoss", 0),
@@ -681,8 +681,8 @@ class SupabaseService:
         ]
 
         if rows:
-            self.client.table("finance_metrics").upsert(rows, on_conflict="user_id,metric_date").execute()
-            self._remove_duplicates("finance_metrics", ["metric_date"], user_id)
+            self.client.table("finance_metrics").upsert(rows, on_conflict="user_id,date").execute()
+            self._remove_duplicates("finance_metrics", ["date"], user_id)
 
     def _save_health_entries(self, user_id: str, entries: List[Dict]) -> None:
         """Sağlık kayıtlarını (günlük) kaydet"""
@@ -923,12 +923,12 @@ class SupabaseService:
         finance_metrics = self.client.table("finance_metrics") \
             .select("*") \
             .eq("user_id", user_id) \
-            .order("metric_date", desc=False) \
+            .order("date", desc=False) \
             .execute()
         backup_data["financeMetrics"] = [
             {
                 "id": row["id"],
-                "date": row["metric_date"],
+                "date": row["date"],
                 "totalInvestment": row.get("total_investment", 0),
                 "currentValue": row.get("current_value", 0),
                 "profitLoss": row.get("profit_loss", 0),
