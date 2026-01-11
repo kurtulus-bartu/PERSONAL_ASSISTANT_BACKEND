@@ -596,6 +596,29 @@ class SupabaseService:
 
         return len(rows)
 
+    def get_last_ai_suggestion_time(self, user_id: str) -> Optional[datetime]:
+        """Kullanıcının en son AI önerisi zamanını döndürür"""
+        if not self.client:
+            return None
+
+        try:
+            response = self.client.table("ai_suggestions") \
+                .select("timestamp") \
+                .eq("user_id", user_id) \
+                .order("timestamp", desc=True) \
+                .limit(1) \
+                .execute()
+
+            if response.data and len(response.data) > 0:
+                timestamp_str = response.data[0]["timestamp"]
+                # Parse ISO format timestamp
+                return datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+
+            return None
+        except Exception as e:
+            print(f"Error getting last AI suggestion time: {str(e)}")
+            return None
+
     def save_ai_memories(
         self,
         user_id: str,

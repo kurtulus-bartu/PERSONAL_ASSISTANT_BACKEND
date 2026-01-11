@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Depends, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional, Dict, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import json
 import os
 from dotenv import load_dotenv
@@ -913,9 +913,11 @@ async def send_daily_summary(request: DailySummaryRequest):
 @app.post("/api/cron/hourly-check")
 async def cron_hourly_check():
     """
-    CronJob endpoint - Called every hour
+    CronJob endpoint - Called every hour by Render CronJob
+    - Health check ping runs every time (unchanged)
+    - AI suggestion generation has 1-hour cooldown per user
+    - Only generates suggestions if 1+ hour has passed since last suggestion
     - Generates AI suggestions for all users (meals, tasks, events, notes)
-    - Can generate multiple times per day
     - Learns from user data and stores memories
     """
     try:
@@ -923,12 +925,24 @@ async def cron_hourly_check():
         all_user_ids = supabase_service.get_all_user_ids()
 
         processed_count = 0
+        skipped_count = 0
         errors = []
         # Generate suggestions for today (not tomorrow)
         target_date = datetime.now().date().isoformat()
+        now = datetime.now(timezone.utc)
 
         for user_id in all_user_ids:
             try:
+                # Check if user had AI suggestion in the last hour
+                last_suggestion_time = supabase_service.get_last_ai_suggestion_time(user_id)
+
+                if last_suggestion_time:
+                    time_since_last = now - last_suggestion_time
+                    # Skip if less than 1 hour has passed
+                    if time_since_last.total_seconds() < 3600:  # 3600 seconds = 1 hour
+                        skipped_count += 1
+                        continue
+
                 # Generate AI suggestions with force=True to allow multiple runs per day
                 await generate_ai_suggestions_for_user(
                     user_id=user_id,
@@ -948,6 +962,7 @@ async def cron_hourly_check():
         return {
             "success": True,
             "processed_users": processed_count,
+            "skipped_users": skipped_count,
             "total_users": len(all_user_ids),
             "target_date": target_date,
             "errors": errors
