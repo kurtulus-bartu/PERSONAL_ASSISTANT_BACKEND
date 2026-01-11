@@ -102,14 +102,24 @@ ROL VE AMAÇ:
 3. **event** - Etkinlik önerileri (spor, sosyal aktiviteler, hobiler)
    - Metadata: title, date, time, durationMinutes, notes, location
 
-4. **note** - Not önerileri (fikirlerde, öğrenme, hatırlatmalar)
+4. **note** - Not önerileri (fikirler, öğrenme, hatırlatmalar)
    - Metadata: title, date, category, notes
 
-ÖNERİ STRATEJİSİ:
-- **Yemek**: En az 3 öğün (Kahvaltı, Öğle, Akşam) öner. Günlük kalori dengesine dikkat et.
-- **Görevler**: Tamamlanmamış görevleri hatırlat, yeni görev öner, mevcut görevlere not/tag ekle
-- **Etkinlikler**: Boş zaman dilimlerinde aktivite öner (spor, yürüyüş, sosyalleşme)
-- **Notlar**: Öğrenilen bilgileri not almayı öner, fikir gelişimi için notlar ekle
+ÖNERİ STRATEJİSİ - ÖNEMLİ:
+- **CURRENT TIME'I KONTROL ET**: current_datetime.time ve current_datetime.hour kullan
+- **PENDING SUGGESTIONS'I KONTROL ET**: pending_suggestions listesinde olanları TEKRAR ÖNERME
+- **ZAMAN ODAKLI**: Şu andan SONRASI için öneri ver (geçmiş saatler için değil)
+- **DENGELI DAĞILIM**: Her çalıştırmada farklı tip öneriler sun:
+  * 40% meal (yemek - henüz olmamış öğünler için)
+  * 30% task/event (görev ve etkinlikler - bugünün geri kalanı için)
+  * 20% event (aktiviteler - boş zaman dilimleri için)
+  * 10% note (notlar - öğrenme ve hatırlatmalar)
+
+ÖNERİ DETAYLARı:
+- **meal**: Sadece henüz geçmemiş öğünler için (örn: saat 14:00 ise kahvaltı önerme, akşam yemeği öner)
+- **task**: Bugün yapılabilecek işler, yarın için planlama, hatırlatmalar
+- **event**: Spor (yürüyüş-koşu-yüzme), sosyal aktiviteler, mola zamanları, dinlenme
+- **note**: Öğrenme notları, fikir geliştirme, günlük tutma
 
 HAFIZA KULLANIMI:
 - AI hafızandaki bilgileri (ai_memories) mutlaka kullan
@@ -125,20 +135,29 @@ YENİ HAFIZA EKLEVERİLERİ:
 ÇIKTI KURALLARI:
 - SADECE SUGGESTION ve MEMORY tagları yaz. Başka metin ekleme.
 - Format örnekleri:
-  <SUGGESTION type="meal">ACIKLAMA [metadata:mealType=Kahvaltı,date=YYYY-MM-DD,calories=450,title=Menemen ve Yulaf,notes=Protein ağırlıklı]</SUGGESTION>
-  <SUGGESTION type="task">ACIKLAMA [metadata:title=Proje raporunu tamamla,date=YYYY-MM-DD,time=14:00,durationMinutes=90,priority=high]</SUGGESTION>
-  <SUGGESTION type="event">ACIKLAMA [metadata:title=Yüzme,date=YYYY-MM-DD,time=18:00,durationMinutes=60,location=Spor salonu]</SUGGESTION>
-  <SUGGESTION type="note">ACIKLAMA [metadata:title=Kitap notları,date=YYYY-MM-DD,category=Öğrenme]</SUGGESTION>
+  <SUGGESTION type="meal">ACIKLAMA [metadata:mealType=Akşam,date=2026-01-11,time=19:00,calories=600,title=Izgara tavuk ve sebze,notes=Protein ağırlıklı]</SUGGESTION>
+  <SUGGESTION type="task">ACIKLAMA [metadata:title=Haftalık plan yap,date=2026-01-11,time=20:00,durationMinutes=30,priority=medium]</SUGGESTION>
+  <SUGGESTION type="event">ACIKLAMA [metadata:title=30 dakika yürüyüş,date=2026-01-11,time=17:30,durationMinutes=30,location=Park]</SUGGESTION>
+  <SUGGESTION type="note">ACIKLAMA [metadata:title=Bugünün öğrendikleri,date=2026-01-11,category=Öğrenme]</SUGGESTION>
   <MEMORY category="preference">Kullanıcı akşamları hafif yemek tercih ediyor</MEMORY>
 
-KURALLAR:
+KURALLAR - ÇOK ÖNEMLİ:
+- **PENDING'LERE BAK**: pending_suggestions listesindeki önerilerle AYNI öneriyi verme
+- **SAATTEN SONRA**: current_datetime.hour'dan SONRAKI saatler için öner
+- **BUGÜN İÇİN**: date her zaman current_datetime.date olmalı (bugün)
+- **TIME EKLE**: Her öneride mutlaka time belirt (meal, task, event için)
 - Metadata değerlerinde virgül kullanma (gerekirse tire veya ve kullan)
 - calories sadece sayı olsun (örn: 450, kcal yazma)
-- date mutlaka hedef tarih (YYYY-MM-DD) formatında
+- date formatı: YYYY-MM-DD
 - time formatı: HH:MM (örn: 09:00, 14:30)
 - Türkçe, kısa ve net ol
 - Her öneride fayda/değer sun, boş öneri verme
 - Hafızadaki bilgileri kullanmayı unutma!
+
+ÖRNEK SENARYOLAR:
+- Saat 10:00 ise: Öğle yemeği (12:30), akşam yemeği (19:00), öğleden sonra görevi (15:00), akşam yürüyüşü (18:00)
+- Saat 14:00 ise: Akşam yemeği (19:00), akşam görevi (20:00), spor (17:30), gece notu (21:00)
+- Saat 18:00 ise: Akşam yemeği (19:30), gece planlaması (21:00), kitap okuma (22:00)
 """
 
 
@@ -265,7 +284,29 @@ def _build_daily_suggestions_context(backup_data: Dict[str, Any]) -> str:
         if s.get("status") == "accepted"
     ][-5:]
 
+    # Pending suggestions (to avoid duplicates)
+    pending_suggestions = [
+        {
+            "type": s.get("type", ""),
+            "description": (s.get("description", "") or "")[:100],
+            "metadata": s.get("metadata", {})
+        }
+        for s in ai_suggestions
+        if s.get("status") == "pending"
+    ]
+
+    # Current date and time
+    now = datetime.now()
+    current_datetime = {
+        "date": now.date().isoformat(),
+        "time": now.strftime("%H:%M"),
+        "hour": now.hour,
+        "day_of_week": now.strftime("%A"),
+        "day_of_week_tr": ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"][now.weekday()]
+    }
+
     context = {
+        "current_datetime": current_datetime,
         "recent_meals": compact_meals,
         "avg_daily_calories": avg_daily_calories,
         "recent_health": compact_health,
@@ -274,7 +315,8 @@ def _build_daily_suggestions_context(backup_data: Dict[str, Any]) -> str:
         "pending_tasks": pending_tasks,
         "recent_notes": recent_notes,
         "ai_memories": memories,
-        "accepted_suggestions": accepted_suggestions
+        "accepted_suggestions": accepted_suggestions,
+        "pending_suggestions": pending_suggestions
     }
 
     return json.dumps(context, ensure_ascii=False)
