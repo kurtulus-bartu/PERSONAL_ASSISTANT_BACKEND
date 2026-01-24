@@ -30,3 +30,4 @@ resend==2.4.0
 
 # Stock Market Data
 yfinance>=0.2.48
+websockets>=13.0
