@@ -64,31 +64,61 @@ class StockService:
                     # Historical price for specific date
                     start = datetime.strptime(date, "%Y-%m-%d")
                     end = start + timedelta(days=1)
-                    hist = ticker.history(start=start, end=end)
+                    hist = ticker.history(start=start, end=end, raise_errors=False)
                 else:
                     # Latest price (last 7 days to ensure we get data)
                     end = datetime.now()
                     start = end - timedelta(days=7)
-                    hist = ticker.history(start=start, end=end)
+                    hist = ticker.history(start=start, end=end, raise_errors=False)
 
                 if hist.empty:
-                    print(f"Stock price not found for symbol: {symbol}")
+                    print(f"⚠️ No history data for {symbol}, trying alternative method...")
+                    # Try using fast_info as fallback
+                    try:
+                        fast_info = ticker.fast_info
+                        if hasattr(fast_info, 'last_price') and fast_info.last_price:
+                            result = {
+                                'symbol': symbol.upper(),
+                                'stock_name': symbol.upper(),
+                                'price': float(fast_info.last_price),
+                                'currency': fast_info.currency if hasattr(fast_info, 'currency') else ('TRY' if '.IS' in symbol.upper() else 'USD'),
+                                'date': datetime.now().strftime("%Y-%m-%d"),
+                                'market': self._extract_market(symbol)
+                            }
+                            print(f"✅ Stock price fetched via fast_info: {symbol} = {result['price']} {result['currency']}")
+                            if not date:
+                                self._save_to_cache(cache_key, result)
+                            return result
+                    except Exception as fast_e:
+                        print(f"Fast info also failed: {str(fast_e)}")
+
+                    print(f"❌ Stock price not found for symbol: {symbol}")
                     return None
 
                 # Get the last available row
                 last_row = hist.iloc[-1]
 
-                # Get stock info
-                info = ticker.info
+                # Get stock info (with timeout protection)
+                try:
+                    info = ticker.info if hasattr(ticker, 'info') else {}
+                except:
+                    info = {}
+
+                # Fallback stock name if info is empty
+                stock_name = symbol.upper()
+                if info:
+                    stock_name = info.get('longName') or info.get('shortName') or symbol.upper()
 
                 result = {
                     'symbol': symbol.upper(),
-                    'stock_name': info.get('longName', info.get('shortName', symbol.upper())),
+                    'stock_name': stock_name,
                     'price': float(last_row['Close']),
-                    'currency': info.get('currency', 'USD'),
+                    'currency': info.get('currency', 'TRY' if '.IS' in symbol.upper() else 'USD'),
                     'date': last_row.name.strftime("%Y-%m-%d"),
                     'market': self._extract_market(symbol)
                 }
+
+                print(f"✅ Stock price fetched successfully: {symbol} = {result['price']} {result['currency']}")
 
                 # Cache result for current prices
                 if not date:
@@ -97,12 +127,15 @@ class StockService:
                 return result
 
             except Exception as e:
-                print(f"Attempt {attempt + 1}/{max_retries} failed for {symbol}: {str(e)}")
+                error_msg = f"Attempt {attempt + 1}/{max_retries} failed for {symbol}: {type(e).__name__}: {str(e)}"
+                print(error_msg)
                 if attempt < max_retries - 1:
                     # Wait before retry (exponential backoff)
-                    time.sleep(2 ** attempt)  # 1s, 2s, 4s
+                    wait_time = 2 ** attempt  # 1s, 2s, 4s
+                    print(f"Waiting {wait_time}s before retry...")
+                    time.sleep(wait_time)
                 else:
-                    print(f"All retries failed for {symbol}")
+                    print(f"❌ All retries exhausted for {symbol}. Error: {str(e)}")
                     return None
 
         return None
