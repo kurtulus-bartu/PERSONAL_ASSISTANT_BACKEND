@@ -29,4 +29,4 @@ supabase==2.6.0
 resend==2.4.0
 
 # Stock Market Data
-yfinance==0.2.36
+yfinance>=0.2.48
