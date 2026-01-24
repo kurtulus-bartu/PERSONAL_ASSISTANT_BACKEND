@@ -105,21 +105,54 @@ ROL VE AMAÇ:
 4. **note** - Not önerileri (fikirler, öğrenme, hatırlatmalar)
    - Metadata: title, date, category, notes
 
+5. **habit** - Alışkanlık önerileri (yeni alışkanlık ekleme önerileri)
+   - Metadata: name, habitType, category, targetValue, targetUnit, frequency, notes
+   - habitType: yes_no, numeric, duration, checklist
+   - frequency: daily, weekly, custom
+
 ÖNERİ STRATEJİSİ - ÖNEMLİ:
 - **CURRENT TIME'I KONTROL ET**: current_datetime.time ve current_datetime.hour kullan
 - **PENDING SUGGESTIONS'I KONTROL ET**: pending_suggestions listesinde olanları TEKRAR ÖNERME
+- **BUGÜNKÜ ETKİNLİKLERİ KONTROL ET**: todays_events listesinde zamanlı etkinlikler var - ÇAKIŞMA YAPMA
+- **BUGÜNKÜ ÖĞÜNLERİ KONTROL ET**: todays_meals listesinde bugün yenmiş öğünler var - TEKRAR ÖNERME
 - **ZAMAN ODAKLI**: Şu andan SONRASI için öneri ver (geçmiş saatler için değil)
-- **DENGELI DAĞILIM**: Her çalıştırmada farklı tip öneriler sun:
-  * 40% meal (yemek - henüz olmamış öğünler için)
-  * 30% task/event (görev ve etkinlikler - bugünün geri kalanı için)
-  * 20% event (aktiviteler - boş zaman dilimleri için)
-  * 10% note (notlar - öğrenme ve hatırlatmalar)
+- **BOŞ ZAMAN DİLİMLERİ**: todays_events'teki etkinlikler arasındaki boş saatleri bul ve öner
+- **ÖNERI ZORUNLU DEĞİL**: Uygun öneri yoksa hiç öneri vermeden dön (boş liste = OK)
+- **DENGELI DAĞILIM**: Uygun öneriler varsa farklı tip öneriler sun:
+  * meal (yemek - todays_meals'de olmayan öğünler için)
+  * task (görev - zamanlanmamış yapılacaklar)
+  * event (aktiviteler - todays_events'te BOŞ olan zaman dilimlerinde)
+  * note (notlar - öğrenme ve hatırlatmalar)
 
 ÖNERİ DETAYLARı:
-- **meal**: Sadece henüz geçmemiş öğünler için (örn: saat 14:00 ise kahvaltı önerme, akşam yemeği öner)
-- **task**: Bugün yapılabilecek işler, yarın için planlama, hatırlatmalar
-- **event**: Spor (yürüyüş-koşu-yüzme), sosyal aktiviteler, mola zamanları, dinlenme
-- **note**: Öğrenme notları, fikir geliştirme, günlük tutma
+- **meal**:
+  * todays_meals listesini kontrol et - zaten yenmiş öğünü TEKRAR ÖNERME
+  * Sadece henüz geçmemiş öğünler için (örn: saat 14:00 ise kahvaltı önerme, akşam yemeği öner)
+  * Öğün tipleri: Kahvaltı (07:00-09:00), Öğle (12:00-14:00), Akşam (18:00-20:00), Atıştırmalık
+
+- **task**:
+  * Zamanlanmamış yapılacaklar (zamansız görevler)
+  * Yarın için planlama, hatırlatmalar
+  * pending_tasks listesindeki tamamlanmamış görevleri dikkate al
+
+- **event**:
+  * **ÇOK ÖNEMLİ**: todays_events listesini kontrol et
+  * Mevcut etkinliklerle ÇAKIŞAN saatlerde öneri VERME
+  * Sadece BOŞ zaman dilimlerini kullan (örn: event 10:00-12:00 varsa, 10:30'da yeni event önerme)
+  * Spor (yürüyüş-koşu-yüzme), sosyal aktiviteler, mola zamanları, dinlenme
+  * En az 30 dakika boş zaman varsa önerilebilir
+
+- **note**:
+  * Öğrenme notları, fikir geliştirme, günlük tutma
+  * Zaman bağımsız öneriler
+
+- **habit**:
+  * existing_habits listesini kontrol et - zaten eklenmiş alışkanlığı TEKRAR ÖNERME
+  * Kullanıcının hedeflerine ve yaşam tarzına uygun alışkanlıklar öner
+  * Başlangıç için kolay, sürdürülebilir alışkanlıklar tercih et
+  * Alışkanlık tipleri: yes_no (basit tamamlandı/tamamlanmadı), numeric (sayısal hedef), duration (süre bazlı), checklist (kontrol listesi)
+  * Sıklık: daily (her gün), weekly (haftanın belirli günleri), custom (her N günde bir)
+  * Örnekler: Su içme, meditasyon, egzersiz, okuma, uyku düzeni
 
 HAFIZA KULLANIMI:
 - AI hafızandaki bilgileri (ai_memories) mutlaka kullan
@@ -139,13 +172,18 @@ YENİ HAFIZA EKLEVERİLERİ:
   <SUGGESTION type="task">ACIKLAMA [metadata:title=Haftalık plan yap,date=2026-01-11,time=20:00,durationMinutes=30,priority=medium]</SUGGESTION>
   <SUGGESTION type="event">ACIKLAMA [metadata:title=30 dakika yürüyüş,date=2026-01-11,time=17:30,durationMinutes=30,location=Park]</SUGGESTION>
   <SUGGESTION type="note">ACIKLAMA [metadata:title=Bugünün öğrendikleri,date=2026-01-11,category=Öğrenme]</SUGGESTION>
+  <SUGGESTION type="habit">ACIKLAMA [metadata:name=Günde 8 bardak su iç,habitType=numeric,category=Sağlık,targetValue=8,targetUnit=bardak,frequency=daily,notes=Hidrasyonu artır]</SUGGESTION>
   <MEMORY category="preference">Kullanıcı akşamları hafif yemek tercih ediyor</MEMORY>
 
 KURALLAR - ÇOK ÖNEMLİ:
+- **ÖNERİ ZORUNLU DEĞİL**: Uygun öneri yoksa hiçbir SUGGESTION tag'i yazma (boş dönüş = OK)
 - **PENDING'LERE BAK**: pending_suggestions listesindeki önerilerle AYNI öneriyi verme
 - **SAATTEN SONRA**: current_datetime.hour'dan SONRAKI saatler için öner
 - **BUGÜN İÇİN**: date her zaman current_datetime.date olmalı (bugün)
+- **ÇAKIŞMA YASAK**: todays_events ile çakışan saatlerde event ÖNERME (takvim kontrolü yap)
+- **TEKRAR YASAK**: todays_meals'de olan öğünü TEKRAR önerme
 - **TIME EKLE**: Her öneride mutlaka time belirt (meal, task, event için)
+- **BOŞ ZAMAN BUL**: event önerirken todays_events arasındaki boşlukları kullan
 - Metadata değerlerinde virgül kullanma (gerekirse tire veya ve kullan)
 - calories sadece sayı olsun (örn: 450, kcal yazma)
 - date formatı: YYYY-MM-DD
@@ -155,9 +193,244 @@ KURALLAR - ÇOK ÖNEMLİ:
 - Hafızadaki bilgileri kullanmayı unutma!
 
 ÖRNEK SENARYOLAR:
-- Saat 10:00 ise: Öğle yemeği (12:30), akşam yemeği (19:00), öğleden sonra görevi (15:00), akşam yürüyüşü (18:00)
-- Saat 14:00 ise: Akşam yemeği (19:00), akşam görevi (20:00), spor (17:30), gece notu (21:00)
-- Saat 18:00 ise: Akşam yemeği (19:30), gece planlaması (21:00), kitap okuma (22:00)
+
+**Senaryo 1**: Saat 10:00, todays_events=[{title:"Toplantı", startTime:"11:00", endTime:"12:00"}], todays_meals=[{mealType:"Kahvaltı"}]
+- ✅ Öğle yemeği (12:30) - Kahvaltı zaten yenmiş, öğle henüz yok
+- ✅ Akşam yemeği (19:00) - Zaten yenmiş öğünler yok
+- ❌ 11:30'da spor - ÇAKIŞMA! Toplantı 11:00-12:00
+- ✅ Öğleden sonra yürüyüş (14:00) - BOŞ zaman dilimi
+- ✅ Akşam notu (20:00)
+
+**Senaryo 2**: Saat 14:00, todays_events=[{startTime:"15:00", endTime:"16:00"}, {startTime:"18:00", endTime:"19:00"}], todays_meals=[{mealType:"Kahvaltı"}, {mealType:"Öğle"}]
+- ❌ Öğle yemeği - Zaten todays_meals'de var
+- ✅ Akşam yemeği (19:30) - todays_meals'de yok, etkinlik 19:00'da bitiyor
+- ❌ 15:30'da görev - ÇAKIŞMA! 15:00-16:00 etkinlik var
+- ✅ 16:30'da kısa yürüyüş - BOŞ (16:00-18:00 arası)
+- ✅ Gece notu (21:00)
+
+**Senaryo 3**: Saat 18:00, tüm öğünler yenmiş, takvim dolu
+- ❌ Hiçbir meal önerisi - Tümü todays_meals'de
+- ❌ Event önerisi - Takvimde boş zaman yok
+- ✅ Sadece note önerisi (zamansız)
+- Sonuç: 0-1 öneri dönebilir (NORMAL - zorunlu değil)
+
+DÜZENLEME YETKİSİ (EDIT CAPABILITY):
+---
+Mevcut görev, etkinlik veya yemek kayıtlarını düzenleyebilirsin. Kullanıcının alışkanlıklarını öğren ve ona göre akıllı değişiklikler öner.
+
+DÜZENLEME FORMAT:
+<EDIT targetType="task|event|meal" targetId="uuid">
+Field: fieldName
+NewValue: newValue
+Reason: Neden bu değişiklik önerildi
+</EDIT>
+
+DÜZENLENEBİLİR ALANLAR:
+- task: title, startTime, endTime, notes, priority, completed
+- event: title, startTime, endTime, location, notes
+- meal: mealType, calories, description, notes
+
+DÜZENLEME ÖRNEKLERİ:
+<EDIT targetType="event" targetId="123e4567-e89b-12d3-a456-426614174000">
+Field: startTime
+NewValue: 15:00
+Reason: Kullanıcının öğleden sonra daha uygun vakti var, sabah etkinliği ile çakışma önlendi
+</EDIT>
+
+<EDIT targetType="meal" targetId="456e7890-e12b-34c5-b678-901234567890">
+Field: calories
+NewValue: 500
+Reason: Kullanıcının günlük kalori hedefi ile daha uyumlu
+</EDIT>
+
+<EDIT targetType="task" targetId="789a0123-b45c-67d8-e901-234567890abc">
+Field: priority
+NewValue: high
+Reason: Son tarihe 2 gün kaldı, öncelik yükseltilmeli
+</EDIT>
+
+DÜZENLEME KURALLARI:
+- Sadece GEREKLI değişiklikleri öner (gereksiz düzenleme yapma)
+- Kullanıcının alışkanlıklarını öğren ve ona göre ayarlamalar yap
+- Her değişiklik için açıklama (Reason) ekle
+- Mevcut verilerdeki (todays_events, todays_meals, pending_tasks) itemleri düzenleyebilirsin
+- startTime veya endTime değiştirirken ÇAKIŞMA yaratma
+- Hafızadaki bilgileri kullanarak kişiselleştirilmiş düzenlemeler yap
+
+DÜZENLEME VS YENİ ÖNERI:
+- Mevcut bir item'ı iyileştireceksen → EDIT kullan
+- Tamamen yeni bir şey ekleyeceksen → SUGGESTION kullan
+- Her ikisini de aynı yanıtta kullanabilirsin
+"""
+
+# Phase-specific prompts for better focused AI generation
+MEAL_SUGGESTIONS_PROMPT = """Sen kullanıcının kişisel asistanısın. SADECE YEMEK ÖNERİLERİ üret.
+
+BUGÜNKÜ ÖĞÜNLERİ KONTROL ET: {todays_meals}
+- Eğer bir öğün zaten yenildiyse TEKRAR ÖNERME
+- Sadece henüz tüketilmemiş öğünler için öneri ver
+
+BUGÜNKÜ ETKİNLİKLERİ KONTROL ET: {todays_events}
+- Yemek saatlerini etkinliklerle çakıştırma
+- Boş zaman dilimlerinde öğün öner
+
+KULLANICI TERCİHLERİ: {recent_meals}
+- Son yemeklerden öğren, çeşitlilik sağla
+- Hafızadaki bilgileri (ai_memories) kullan
+
+CURRENT TIME: {current_datetime}
+- Geçmiş saatler için öneri verme
+- Sadece şu andan sonrası için öner
+
+<SUGGESTION type="meal">
+Açıklama [metadata:mealType=Breakfast,time=09:00,calories=450,title=Yumurta ve sebze]
+</SUGGESTION>
+
+KURALLAR:
+- En fazla 3 yemek öner
+- ZORUNLU DEĞİL - uygun değilse hiç önerme
+- Metadata: mealType, time, calories, title, notes
+- Öğün tipleri: Kahvaltı (07:00-09:00), Öğle (12:00-14:00), Akşam (18:00-20:00), Atıştırmalık
+"""
+
+TASK_SUGGESTIONS_PROMPT = """Sen kullanıcının kişisel asistanısın. SADECE GÖREV ÖNERİLERİ üret.
+
+MEVCUT GÖREVLER: {pending_tasks}
+- Tamamlanmamış görevleri dikkate al
+- Eksik olanları tamamla
+- Rutin görevleri öner
+
+HAFIZA: {ai_memories}
+- Kullanıcının hedeflerini ve alışkanlıklarını dikkate al
+
+CURRENT TIME: {current_datetime}
+- Bugün ve yakın gelecek için görevler
+
+<SUGGESTION type="task">
+Açıklama [metadata:title=Haftalık plan yap,date=2026-01-23,time=20:00,durationMinutes=30,priority=medium]
+</SUGGESTION>
+
+KURALLAR:
+- En fazla 4 görev öner
+- ZORUNLU DEĞİL - uygun değilse hiç önerme
+- Metadata: title, date, time, durationMinutes, priority, notes
+- Priority: low, medium, high
+"""
+
+EVENT_SUGGESTIONS_PROMPT = """Sen kullanıcının kişisel asistanısın. SADECE ETKİNLİK ÖNERİLERİ üret.
+
+BUGÜNKÜ ETKİNLİKLER: {todays_events}
+- BOŞ zaman dilimlerini bul
+- ÇAKIŞMA YAPMA - mevcut etkinliklerin arasına sığdır
+- En az 30 dakika boş zaman gerekli
+
+HAFIZA: {ai_memories}
+- Kullanıcının spor, sosyal, dinlenme alışkanlıklarını dikkate al
+
+CURRENT TIME: {current_datetime}
+- Sadece boş zaman dilimlerinde öneri ver
+
+<SUGGESTION type="event">
+Açıklama [metadata:title=30 dakika yürüyüş,date=2026-01-23,time=17:30,durationMinutes=30,location=Park]
+</SUGGESTION>
+
+KURALLAR:
+- En fazla 3 etkinlik öner
+- ZORUNLU DEĞİL - boş zaman yoksa hiç önerme
+- Metadata: title, date, time, durationMinutes, location, notes
+- Sadece BOŞ saatlerde öneri ver (todays_events arasını kontrol et)
+"""
+
+# Fitness Coach System Prompt
+FITNESS_COACH_PROMPT = """Sen profesyonel bir fitness koçusun. Kullanıcının son haftalık antrenmanlarını analiz edip haftalık değerlendirme ve gelecek hafta programı öneriyorsun.
+
+KULLANICI VERİLERİ (Son 7 Gün):
+- Tamamlanan antrenman sayısı: {workouts_completed}
+- Toplam hacim (volume): {total_volume}
+- Toplam set sayısı: {total_sets}
+- Toplam tekrar sayısı: {total_reps}
+- Çalışılan kas grupları: {muscle_groups_trained}
+- Dinlenme günleri: {rest_days}
+- Ortalama antrenman süresi: {avg_workout_duration}
+- Ortalama RPE (zorluk): {avg_rpe}
+
+KULLANICI TERCİHLERİ VE HAFIZA:
+{user_fitness_memories}
+
+GEÇENGETİKİ PROGRAM:
+{previous_week_program}
+
+GÖREVİN:
+1. **Haftalık Özet**: Kullanıcının performansını değerlendir
+2. **Güçlü Yönler**: Ne iyi gitti? (consistency, progressive overload, dengeforms)
+3. **Gelişim Alanları**: Nelere dikkat edilmeli? (overtraining, kas dengesizliği, dinlenme eksikliği)
+4. **Motivasyon Mesajı**: Kısa ve motive edici bir mesaj
+5. **Gelecek Hafta Programı**: 3-6 günlük optimize edilmiş antrenman programı
+
+ÖNEMLİ KURALLAR:
+- Kas gruplarında DENGE sağla (overtraining engelle)
+- Dinlenme günlerini PROGRAMLA (aktif recovery öner)
+- Kullanıcı hedeflerine UYGUN program yap (güç/hacim/dayanıklılık)
+- Progressive overload UYGULA (geçen haftadan biraz daha zorlayıcı olsun ama aşırıya kaçma)
+- Yeni başlayan biriyse hafif başla, deneyimli biriyse zorla
+- Kas gruplarını 48-72 saat dinlendirmeden tekrar çalıştırma
+
+FORMAT:
+<COACHING_SESSION>
+  <SUMMARY>
+  Haftalık genel değerlendirme (2-3 cümle)...
+  </SUMMARY>
+
+  <STRENGTHS>
+  - Güçlü yön 1
+  - Güçlü yön 2
+  - Güçlü yön 3
+  </STRENGTHS>
+
+  <IMPROVEMENTS>
+  - Gelişim alanı 1
+  - Gelişim alanı 2
+  </IMPROVEMENTS>
+
+  <MOTIVATION>
+  Kısa ve güçlü bir motivasyon mesajı...
+  </MOTIVATION>
+
+  <PROGRAM>
+    <DAY day="Pazartesi">
+      <WORKOUT type="Push">
+        <EXERCISE name="Bench Press" sets="4" reps="8" rest="120" notes="Progressive overload - geçen haftadan 2.5kg artır" />
+        <EXERCISE name="Shoulder Press" sets="3" reps="10" rest="90" notes="Omuz sağlığına dikkat et" />
+        <EXERCISE name="Tricep Pushdown" sets="3" reps="12" rest="60" />
+      </WORKOUT>
+    </DAY>
+    <DAY day="Çarşamba">
+      <WORKOUT type="Pull">
+        <EXERCISE name="Deadlift" sets="4" reps="6" rest="180" notes="Form odaklı çalış" />
+        <EXERCISE name="Pull Up" sets="3" reps="8" rest="90" />
+        <EXERCISE name="Barbell Row" sets="3" reps="10" rest="90" />
+      </WORKOUT>
+    </DAY>
+    <DAY day="Cuma">
+      <WORKOUT type="Legs">
+        <EXERCISE name="Squat" sets="4" reps="8" rest="150" />
+        <EXERCISE name="Leg Press" sets="3" reps="12" rest="90" />
+        <EXERCISE name="Leg Curl" sets="3" reps="12" rest="60" />
+      </WORKOUT>
+    </DAY>
+    <DAY day="Cumartesi">
+      <WORKOUT type="Active Recovery">
+        <EXERCISE name="Hafif Kardio" sets="1" reps="20" rest="0" notes="20 dakika yürüyüş veya bisiklet" />
+        <EXERCISE name="Stretching" sets="1" reps="15" rest="0" notes="15 dakika germe egzersizleri" />
+      </WORKOUT>
+    </DAY>
+  </PROGRAM>
+</COACHING_SESSION>
+
+ÖRNEKLER:
+- Yeni başlayan: 3 gün full body, düşük hacim
+- Orta seviye: 4 gün Upper/Lower split
+- İleri seviye: 5-6 gün Push/Pull/Legs veya PPL x2
 """
 
 
@@ -254,6 +527,32 @@ def _build_daily_suggestions_context(backup_data: Dict[str, Any]) -> str:
         if not t.get("completed", False)
     ][:15]  # Limit to 15 pending tasks
 
+    # Today's scheduled events (to find free time slots)
+    today = datetime.now().date().isoformat()
+    todays_events = [
+        {
+            "title": t.get("title", ""),
+            "startDate": str(t.get("startDate", ""))[:16],  # YYYY-MM-DD HH:MM
+            "endDate": str(t.get("endDate", ""))[:16],
+            "startTime": str(t.get("startDate", ""))[11:16] if len(str(t.get("startDate", ""))) > 11 else None,
+            "endTime": str(t.get("endDate", ""))[11:16] if len(str(t.get("endDate", ""))) > 11 else None,
+            "tags": t.get("tags", [])
+        }
+        for t in tasks
+        if str(t.get("startDate", ""))[:10] == today and not t.get("completed", False)
+    ]
+
+    # Today's meals (to avoid duplicate meal suggestions)
+    todays_meals = [
+        {
+            "mealType": m.get("mealType"),
+            "description": m.get("description"),
+            "calories": m.get("calories", 0)
+        }
+        for m in meals
+        if str(m.get("date", ""))[:10] == today
+    ]
+
     # Recent notes (last 10)
     recent_notes = [
         {
@@ -295,6 +594,32 @@ def _build_daily_suggestions_context(backup_data: Dict[str, Any]) -> str:
         if s.get("status") == "pending"
     ]
 
+    # Habit tracking data
+    habits = backup_data.get("habits", [])
+    habit_logs = backup_data.get("habitLogs", [])
+
+    # Existing habits
+    existing_habits = [
+        {
+            "name": h.get("name", ""),
+            "category": h.get("category", ""),
+            "type": h.get("type", ""),
+            "frequency": h.get("frequency", "")
+        }
+        for h in habits
+    ]
+
+    # Today's habit completions
+    today = datetime.now().date().isoformat()
+    todays_habit_logs = [
+        {
+            "habitName": next((h.get("name") for h in habits if h.get("id") == log.get("habitId")), "Unknown"),
+            "completed": log.get("completed", False)
+        }
+        for log in habit_logs
+        if str(log.get("date", ""))[:10] == today
+    ]
+
     # Current date and time
     now = datetime.now()
     current_datetime = {
@@ -313,10 +638,14 @@ def _build_daily_suggestions_context(backup_data: Dict[str, Any]) -> str:
         "recent_sleep": compact_sleep,
         "recent_workouts": compact_workouts,
         "pending_tasks": pending_tasks,
+        "todays_events": todays_events,
+        "todays_meals": todays_meals,
         "recent_notes": recent_notes,
         "ai_memories": memories,
         "accepted_suggestions": accepted_suggestions,
-        "pending_suggestions": pending_suggestions
+        "pending_suggestions": pending_suggestions,
+        "existing_habits": existing_habits,
+        "todays_habit_logs": todays_habit_logs
     }
 
     return json.dumps(context, ensure_ascii=False)
@@ -784,6 +1113,28 @@ async def daily_suggestions(
         raise HTTPException(status_code=500, detail=f"Daily suggestions failed: {str(e)}")
 
 
+@app.post("/api/ai/daily-suggestions-phased", response_model=DailySuggestionsResponse)
+async def daily_suggestions_phased(
+    request: DailySuggestionsRequest,
+    x_user_id: str = Header(...)
+):
+    """
+    Generate daily suggestions in phases: meal → task → event
+    Each phase uses a focused prompt for better AI quality.
+    """
+    try:
+        result = await _generate_daily_suggestions_phased(
+            user_id=x_user_id,
+            target_date=request.target_date,
+            force=request.force
+        )
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Phased suggestions failed: {str(e)}")
+
+
 # Yardımcı endpoint'ler
 @app.get("/api/health")
 async def health_check():
@@ -979,6 +1330,255 @@ async def cron_daily_check():
     return await cron_hourly_check()
 
 
+@app.post("/api/cron/weekly-fitness-coach")
+async def cron_weekly_fitness_coach():
+    """
+    CronJob endpoint - Called every Monday at 06:00
+    Generates weekly fitness coaching reports for all users with workouts
+    """
+    print("🏋️ Starting weekly fitness coach cron job...")
+
+    try:
+        # Get all users who have workout data
+        users_with_workouts = supabase_service.get_users_with_workouts()
+        print(f"Found {len(users_with_workouts)} users with workout data")
+
+        coaching_sessions_created = 0
+
+        for user_id in users_with_workouts:
+            try:
+                await generate_fitness_coaching_for_user(user_id)
+                coaching_sessions_created += 1
+            except Exception as e:
+                print(f"Error generating fitness coaching for user {user_id}: {str(e)}")
+                continue
+
+        return {
+            "status": "success",
+            "users_processed": len(users_with_workouts),
+            "coaching_sessions_created": coaching_sessions_created
+        }
+
+    except Exception as e:
+        print(f"Error in weekly fitness coach cron: {str(e)}")
+        return {"status": "error", "message": str(e)}
+
+
+async def generate_fitness_coaching_for_user(user_id: str):
+    """Generate weekly fitness coaching for a single user"""
+    from datetime import datetime, timedelta
+    import json
+
+    # Get last 7 days of workouts
+    today = datetime.now()
+    week_start = (today - timedelta(days=7)).date()
+    week_end = today.date()
+
+    workouts = supabase_service.get_workouts_for_period(user_id, week_start, week_end)
+
+    if len(workouts) == 0:
+        print(f"No workouts found for user {user_id}, skipping coaching")
+        return
+
+    # Calculate weekly metrics
+    metrics = calculate_weekly_fitness_metrics(workouts, week_start, week_end)
+
+    # Get user's fitness memories and previous program
+    fitness_memories = supabase_service.get_ai_memories(
+        user_id,
+        category="fitness",
+        limit=10
+    )
+    previous_coaching = supabase_service.get_latest_fitness_coaching(user_id)
+
+    # Build context for AI
+    context = {
+        "workouts_completed": metrics["workouts_completed"],
+        "total_volume": f"{metrics['total_volume']:.0f} kg",
+        "total_sets": metrics["total_sets"],
+        "total_reps": metrics["total_reps"],
+        "muscle_groups_trained": json.dumps(metrics["muscle_groups"], ensure_ascii=False),
+        "rest_days": metrics["rest_days"],
+        "avg_workout_duration": f"{metrics['avg_duration']:.0f} dk",
+        "avg_rpe": f"{metrics['avg_rpe']:.1f}",
+        "user_fitness_memories": "\n".join([f"- {m.get('content', '')}" for m in fitness_memories]),
+        "previous_week_program": previous_coaching.get("next_week_program", {}) if previous_coaching else {}
+    }
+
+    # Generate AI coaching
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        print("GEMINI_API_KEY not set, skipping AI coaching generation")
+        return
+
+    service = EnhancedGeminiService(api_key=api_key)
+    coaching_prompt = FITNESS_COACH_PROMPT.format(**context)
+    response = service.generate_response(
+        message="Haftalık fitness koçluğu yap",
+        context=context,
+        system_prompt=coaching_prompt
+    )
+
+    # Parse coaching response
+    coaching_data = parse_fitness_coaching_response(response)
+
+    # Save to database
+    coaching_session = {
+        "user_id": user_id,
+        "week_start_date": str(week_start),
+        "week_end_date": str(week_end),
+        **metrics,
+        **coaching_data
+    }
+
+    supabase_service.save_fitness_coaching_session(coaching_session)
+    print(f"✅ Created fitness coaching session for user {user_id}")
+
+
+def calculate_weekly_fitness_metrics(workouts: list, week_start, week_end) -> dict:
+    """Calculate weekly workout metrics"""
+    from datetime import datetime
+
+    total_volume = 0
+    total_sets = 0
+    total_reps = 0
+    total_duration = 0
+    rpe_sum = 0
+    rpe_count = 0
+    muscle_groups = {}
+    workout_days = set()
+
+    for workout in workouts:
+        # Track workout day
+        workout_date = datetime.fromisoformat(workout["date"].replace("Z", "+00:00")).date()
+        workout_days.add(workout_date)
+
+        # Duration
+        total_duration += workout.get("duration", 0)
+
+        # Process exercises
+        for exercise in workout.get("exercises", []):
+            # Muscle group frequency
+            muscle_group = exercise.get("muscleGroup", "")
+            if muscle_group:
+                muscle_groups[muscle_group] = muscle_groups.get(muscle_group, 0) + 1
+
+            # Calculate from setDetails if available
+            set_details = exercise.get("setDetails", [])
+            if set_details:
+                for set_detail in set_details:
+                    reps = set_detail.get("reps", 0)
+                    weight = set_detail.get("weight", 0)
+                    total_volume += reps * weight
+                    total_reps += reps
+                    total_sets += 1
+
+                    rpe = set_detail.get("rpe", 0)
+                    if rpe > 0:
+                        rpe_sum += rpe
+                        rpe_count += 1
+            else:
+                # Fallback to basic fields
+                sets = exercise.get("sets", 0)
+                reps = exercise.get("reps", 0)
+                weight = exercise.get("weight", 0)
+                total_volume += sets * reps * weight
+                total_reps += sets * reps
+                total_sets += sets
+
+                rpe = exercise.get("rpe", 0)
+                if rpe > 0:
+                    rpe_sum += rpe
+                    rpe_count += 1
+
+    # Calculate rest days
+    days_in_period = (week_end - week_start).days + 1
+    rest_days = days_in_period - len(workout_days)
+
+    return {
+        "workouts_completed": len(workouts),
+        "total_volume": total_volume,
+        "total_sets": total_sets,
+        "total_reps": total_reps,
+        "muscle_groups": muscle_groups,
+        "rest_days": rest_days,
+        "avg_duration": total_duration / len(workouts) if workouts else 0,
+        "avg_rpe": rpe_sum / rpe_count if rpe_count > 0 else 0
+    }
+
+
+def parse_fitness_coaching_response(response_text: str) -> dict:
+    """Parse AI coaching response into structured data"""
+    import re
+
+    result = {
+        "weekly_summary": "",
+        "strengths": [],
+        "areas_for_improvement": [],
+        "motivation_message": "",
+        "next_week_program": {"days": []}
+    }
+
+    # Extract summary
+    summary_match = re.search(r'<SUMMARY>(.*?)</SUMMARY>', response_text, re.DOTALL)
+    if summary_match:
+        result["weekly_summary"] = summary_match.group(1).strip()
+
+    # Extract strengths
+    strengths_match = re.search(r'<STRENGTHS>(.*?)</STRENGTHS>', response_text, re.DOTALL)
+    if strengths_match:
+        strengths_text = strengths_match.group(1).strip()
+        result["strengths"] = [s.strip().lstrip('- ') for s in strengths_text.split('\n') if s.strip() and s.strip().startswith('-')]
+
+    # Extract improvements
+    improvements_match = re.search(r'<IMPROVEMENTS>(.*?)</IMPROVEMENTS>', response_text, re.DOTALL)
+    if improvements_match:
+        improvements_text = improvements_match.group(1).strip()
+        result["areas_for_improvement"] = [i.strip().lstrip('- ') for i in improvements_text.split('\n') if i.strip() and i.strip().startswith('-')]
+
+    # Extract motivation
+    motivation_match = re.search(r'<MOTIVATION>(.*?)</MOTIVATION>', response_text, re.DOTALL)
+    if motivation_match:
+        result["motivation_message"] = motivation_match.group(1).strip()
+
+    # Extract program
+    program_match = re.search(r'<PROGRAM>(.*?)</PROGRAM>', response_text, re.DOTALL)
+    if program_match:
+        program_text = program_match.group(1)
+
+        # Parse each day
+        day_pattern = r'<DAY day="(.*?)">(.*?)</DAY>'
+        for day_match in re.finditer(day_pattern, program_text, re.DOTALL):
+            day_name = day_match.group(1)
+            day_content = day_match.group(2)
+
+            # Parse workout type
+            workout_match = re.search(r'<WORKOUT type="(.*?)">(.*?)</WORKOUT>', day_content, re.DOTALL)
+            if workout_match:
+                workout_type = workout_match.group(1)
+                exercises_content = workout_match.group(2)
+
+                # Parse exercises
+                exercises = []
+                exercise_pattern = r'<EXERCISE name="(.*?)" sets="(.*?)" reps="(.*?)" rest="(.*?)"(?:\s+notes="(.*?)")?\s*/>'
+                for ex_match in re.finditer(exercise_pattern, exercises_content):
+                    exercises.append({
+                        "name": ex_match.group(1),
+                        "sets": int(ex_match.group(2)),
+                        "reps": int(ex_match.group(3)),
+                        "rest_seconds": int(ex_match.group(4)),
+                        "notes": ex_match.group(5) or ""
+                    })
+
+                result["next_week_program"]["days"].append({
+                    "day": day_name,
+                    "workoutType": workout_type,
+                    "exercises": exercises
+                })
+
+    return result
+
+
 async def generate_ai_suggestions_for_user(
     user_id: str,
     target_date: Optional[str] = None,
@@ -1107,6 +1707,24 @@ async def _generate_daily_suggestions_for_user(
     suggestions = parsed.get("suggestions", [])
     memories = parsed.get("memories", [])
 
+    # Parse EDIT suggestions (NEW)
+    from app.ai_capabilities import parse_edit_suggestions
+    edits = parse_edit_suggestions(response_text or "")
+
+    # Convert edits to suggestions for storage
+    for edit in edits:
+        suggestions.append({
+            'type': 'edit',
+            'description': f"Düzenleme önerisi: {edit['field']} → {edit['newValue']}",
+            'metadata': {
+                'targetType': edit['targetType'],
+                'targetId': edit['targetId'],
+                'field': edit['field'],
+                'newValue': edit['newValue'],
+                'reason': edit['reason']
+            }
+        })
+
     # Save AI memories first (if any)
     memory_count = 0
     if memories:
@@ -1145,6 +1763,156 @@ async def _generate_daily_suggestions_for_user(
         saved_count=saved_count,
         skipped=False,
         message=f"Saved {saved_count} suggestions and {memory_count} memories."
+    )
+
+
+async def _generate_daily_suggestions_phased(
+    user_id: str,
+    target_date: Optional[str] = None,
+    force: bool = False
+) -> DailySuggestionsResponse:
+    """Generate suggestions in phases: meal → task → event"""
+    resolved_date = target_date
+    if resolved_date:
+        parsed_date = _parse_iso_date(resolved_date)
+        if parsed_date:
+            resolved_date = parsed_date.date().isoformat()
+        else:
+            resolved_date = resolved_date[:10]
+    else:
+        resolved_date = (datetime.now() + timedelta(days=1)).date().isoformat()
+
+    if not force:
+        already_exists = supabase_service.has_ai_suggestions_for_date(
+            user_id=user_id,
+            target_date=resolved_date
+        )
+        if already_exists:
+            return DailySuggestionsResponse(
+                success=True,
+                saved_count=0,
+                skipped=True,
+                message="Suggestions already exist for target date."
+            )
+
+    backup_data = await supabase_service.get_backup_data(user_id=user_id)
+    context = _build_daily_suggestions_context(backup_data)
+
+    service = get_gemini_service()
+    all_suggestions = []
+    all_memories = []
+
+    from app.ai_capabilities import parse_edit_suggestions
+
+    # Phase 1: Meal suggestions
+    try:
+        meal_response = service.generate_response(
+            message=f"Hedef tarih: {resolved_date}. Yemek önerileri üret.",
+            context=context,
+            system_prompt=MEAL_SUGGESTIONS_PROMPT.format(
+                todays_meals=context.get("todays_meals", []),
+                todays_events=context.get("todays_events", []),
+                recent_meals=context.get("recent_meals", []),
+                current_datetime=context.get("current_datetime", {}),
+                ai_memories=context.get("ai_memories", [])
+            )
+        )
+        parsed = parse_suggestions_and_memories(meal_response or "")
+        all_suggestions.extend(parsed.get("suggestions", []))
+        all_memories.extend(parsed.get("memories", []))
+
+        edits = parse_edit_suggestions(meal_response or "")
+        for edit in edits:
+            all_suggestions.append({
+                'type': 'edit',
+                'description': f"Düzenleme: {edit['field']} → {edit['newValue']}",
+                'metadata': edit
+            })
+    except Exception as e:
+        print(f"⚠️ Meal phase error: {str(e)}")
+
+    # Phase 2: Task suggestions
+    try:
+        task_response = service.generate_response(
+            message=f"Hedef tarih: {resolved_date}. Görev önerileri üret.",
+            context=context,
+            system_prompt=TASK_SUGGESTIONS_PROMPT.format(
+                pending_tasks=context.get("pending_tasks", []),
+                current_datetime=context.get("current_datetime", {}),
+                ai_memories=context.get("ai_memories", [])
+            )
+        )
+        parsed = parse_suggestions_and_memories(task_response or "")
+        all_suggestions.extend(parsed.get("suggestions", []))
+        all_memories.extend(parsed.get("memories", []))
+
+        edits = parse_edit_suggestions(task_response or "")
+        for edit in edits:
+            all_suggestions.append({
+                'type': 'edit',
+                'description': f"Düzenleme: {edit['field']} → {edit['newValue']}",
+                'metadata': edit
+            })
+    except Exception as e:
+        print(f"⚠️ Task phase error: {str(e)}")
+
+    # Phase 3: Event suggestions
+    try:
+        event_response = service.generate_response(
+            message=f"Hedef tarih: {resolved_date}. Etkinlik önerileri üret.",
+            context=context,
+            system_prompt=EVENT_SUGGESTIONS_PROMPT.format(
+                todays_events=context.get("todays_events", []),
+                current_datetime=context.get("current_datetime", {}),
+                ai_memories=context.get("ai_memories", [])
+            )
+        )
+        parsed = parse_suggestions_and_memories(event_response or "")
+        all_suggestions.extend(parsed.get("suggestions", []))
+        all_memories.extend(parsed.get("memories", []))
+
+        edits = parse_edit_suggestions(event_response or "")
+        for edit in edits:
+            all_suggestions.append({
+                'type': 'edit',
+                'description': f"Düzenleme: {edit['field']} → {edit['newValue']}",
+                'metadata': edit
+            })
+    except Exception as e:
+        print(f"⚠️ Event phase error: {str(e)}")
+
+    # Save AI memories
+    memory_count = 0
+    if all_memories:
+        try:
+            memory_count = supabase_service.save_ai_memories(
+                user_id=user_id,
+                memories=all_memories
+            )
+            print(f"✅ Saved {memory_count} AI memories (phased)")
+        except Exception as e:
+            print(f"⚠️ Error saving AI memories: {str(e)}")
+
+    if not all_suggestions:
+        return DailySuggestionsResponse(
+            success=False,
+            saved_count=0,
+            skipped=False,
+            message=f"No suggestions generated. Saved {memory_count} memories."
+        )
+
+    saved_count = supabase_service.save_ai_suggestions(
+        user_id=user_id,
+        suggestions=all_suggestions,
+        target_date=resolved_date,
+        source="daily_suggestions_phased"
+    )
+
+    return DailySuggestionsResponse(
+        success=True,
+        saved_count=saved_count,
+        skipped=False,
+        message=f"Phased: Saved {saved_count} suggestions ({len([s for s in all_suggestions if s.get('type') == 'meal'])} meals, {len([s for s in all_suggestions if s.get('type') == 'task'])} tasks, {len([s for s in all_suggestions if s.get('type') == 'event'])} events, {len([s for s in all_suggestions if s.get('type') == 'edit'])} edits) and {memory_count} memories."
     )
 
 

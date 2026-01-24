@@ -581,6 +581,45 @@ def parse_suggestions_and_memories(ai_response: str) -> Dict[str, List[Dict[str,
     }
 
 
+def parse_edit_suggestions(ai_response: str) -> List[Dict[str, Any]]:
+    """
+    Parse AI response to extract EDIT tags for modifying existing items
+
+    Args:
+        ai_response: AI's response text that may contain EDIT tags
+
+    Returns:
+        List of edit suggestion dictionaries
+    """
+    import re
+
+    edits = []
+
+    # Parse EDIT tags
+    # Format: <EDIT targetType="task" targetId="uuid">Field: field\nNewValue: value\nReason: reason</EDIT>
+    edit_pattern = r'<EDIT\s+targetType="([^"]+)"\s+targetId="([^"]+)">([^<]+)</EDIT>'
+    edit_matches = re.findall(edit_pattern, ai_response, re.DOTALL)
+
+    for target_type, target_id, content in edit_matches:
+        content = content.strip()
+
+        # Parse field, newValue, reason from content
+        field_match = re.search(r'Field:\s*(.+?)(?:\n|$)', content, re.MULTILINE)
+        value_match = re.search(r'NewValue:\s*(.+?)(?:\n|$)', content, re.MULTILINE)
+        reason_match = re.search(r'Reason:\s*(.+?)(?:\n|$)', content, re.MULTILINE)
+
+        if field_match and value_match:
+            edits.append({
+                'targetType': target_type.strip(),
+                'targetId': target_id.strip(),
+                'field': field_match.group(1).strip(),
+                'newValue': value_match.group(1).strip(),
+                'reason': reason_match.group(1).strip() if reason_match else ""
+            })
+
+    return edits
+
+
 def remove_tags_from_response(ai_response: str) -> str:
     """
     Remove SUGGESTION and MEMORY tags from AI response to get clean text

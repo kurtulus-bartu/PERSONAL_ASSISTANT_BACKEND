@@ -18,3 +18,29 @@ services:
         sync: false
       - key: ENVIRONMENT
         value: production
+
+  - type: cron
+    name: ai-suggestions-hourly
+    env: python
+    region: frankfurt
+    plan: free
+    branch: main
+    schedule: "0 * * * *"  # Every hour at minute 0
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    command: curl -X POST https://personal-assistant-backend.onrender.com/api/cron/hourly-check
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+
+  - type: cron
+    name: fitness-coach-weekly
+    env: python
+    region: frankfurt
+    plan: free
+    branch: main
+    schedule: "0 6 * * 1"  # Every Monday at 06:00
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    command: curl -X POST https://personal-assistant-backend.onrender.com/api/cron/weekly-fitness-coach
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9

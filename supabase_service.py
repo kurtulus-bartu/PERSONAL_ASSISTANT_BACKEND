@@ -864,23 +864,58 @@ class SupabaseService:
                 user_id
             )
 
-            # Egzersizleri de kaydet
+            # Egzersizleri de kaydet (with advanced fields)
             for entry in entries:
                 if "exercises" in entry:
                     exercise_rows = [
                         {
                             "id": ex["id"],
                             "workout_id": entry["id"],
+                            "user_id": user_id,
                             "name": ex["name"],
                             "sets": ex["sets"],
                             "reps": ex["reps"],
                             "weight": ex["weight"],
-                            "notes": ex.get("notes", "")
+                            "notes": ex.get("notes", ""),
+                            # NEW FIELDS for advanced tracking
+                            "muscle_group": ex.get("muscleGroup", ""),
+                            "category": ex.get("category", ""),
+                            "rest_seconds": ex.get("restSeconds", 90),
+                            "tempo": ex.get("tempo", ""),
+                            "rpe": ex.get("rpe", 0),
+                            "distance": ex.get("distance", 0),
+                            "duration": ex.get("duration", 0)
                         }
                     for ex in entry["exercises"]
                 ]
                 if exercise_rows:
                     self.client.table("exercises").upsert(exercise_rows, on_conflict="id").execute()
+
+                    # Save setDetails array for each exercise
+                    for ex in entry["exercises"]:
+                        set_details = ex.get("setDetails", [])
+                        if set_details:
+                            # Delete existing set details for this exercise
+                            self.client.table("exercise_set_details").delete().eq("exercise_id", ex["id"]).execute()
+
+                            # Insert new set details
+                            set_rows = [
+                                {
+                                    "id": str(set_detail["id"]),
+                                    "user_id": user_id,
+                                    "exercise_id": ex["id"],
+                                    "set_number": set_detail["setNumber"],
+                                    "reps": set_detail["reps"],
+                                    "weight": set_detail["weight"],
+                                    "rpe": set_detail.get("rpe", 0),
+                                    "notes": set_detail.get("notes", ""),
+                                    "completed": set_detail.get("completed", False)
+                                }
+                                for set_detail in set_details
+                            ]
+
+                            if set_rows:
+                                self.client.table("exercise_set_details").insert(set_rows).execute()
 
     async def get_backup_data(self, user_id: str) -> Dict:
         """Supabase'den kullanıcının tüm verisini çeker"""
@@ -1053,12 +1088,40 @@ class SupabaseService:
             .eq("user_id", user_id) \
             .execute()
 
+        # Fetch all exercises and set details at once for efficiency
+        exercises_response = self.client.table("exercises") \
+            .select("*") \
+            .eq("user_id", user_id) \
+            .execute()
+
+        set_details_response = self.client.table("exercise_set_details") \
+            .select("*") \
+            .eq("user_id", user_id) \
+            .execute()
+
+        # Group set details by exercise_id
+        set_details_by_exercise = {}
+        for sd in (set_details_response.data or []):
+            ex_id = sd["exercise_id"]
+            if ex_id not in set_details_by_exercise:
+                set_details_by_exercise[ex_id] = []
+            set_details_by_exercise[ex_id].append({
+                "id": sd["id"],
+                "setNumber": sd["set_number"],
+                "reps": sd["reps"],
+                "weight": sd["weight"],
+                "rpe": sd.get("rpe", 0),
+                "notes": sd.get("notes", ""),
+                "completed": sd.get("completed", False)
+            })
+
         workouts_with_exercises = []
         for workout in (workout_entries.data or []):
-            exercises = self.client.table("exercises") \
-                .select("*") \
-                .eq("workout_id", workout["id"]) \
-                .execute()
+            # Filter exercises for this workout
+            workout_exercises = [
+                ex for ex in (exercises_response.data or [])
+                if ex["workout_id"] == workout["id"]
+            ]
 
             workouts_with_exercises.append({
                 "id": workout["id"],
@@ -1074,9 +1137,18 @@ class SupabaseService:
                         "sets": ex["sets"],
                         "reps": ex["reps"],
                         "weight": ex["weight"],
-                        "notes": ex.get("notes", "")
+                        "notes": ex.get("notes", ""),
+                        # NEW FIELDS for advanced tracking
+                        "muscleGroup": ex.get("muscle_group", ""),
+                        "category": ex.get("category", ""),
+                        "restSeconds": ex.get("rest_seconds", 90),
+                        "tempo": ex.get("tempo", ""),
+                        "rpe": ex.get("rpe", 0),
+                        "distance": ex.get("distance", 0),
+                        "duration": ex.get("duration", 0),
+                        "setDetails": set_details_by_exercise.get(ex["id"], [])
                     }
-                    for ex in (exercises.data or [])
+                    for ex in workout_exercises
                 ]
             })
 
@@ -1271,3 +1343,141 @@ class SupabaseService:
         except Exception as e:
             print(f"Error getting user meals: {str(e)}")
             return []
+
+    # ============================================================================
+    # FITNESS COACHING METHODS
+    # ============================================================================
+
+    def get_users_with_workouts(self) -> List[str]:
+        """Get all user IDs who have workout entries"""
+        if not self.client:
+            return []
+
+        try:
+            # Get distinct user_ids from workout_entries table
+            response = self.client.table("workout_entries").select("user_id").execute()
+            user_ids = list(set([row["user_id"] for row in response.data if row.get("user_id")]))
+            return user_ids
+        except Exception as e:
+            print(f"Error getting users with workouts: {str(e)}")
+            return []
+
+    def get_workouts_for_period(self, user_id: str, start_date, end_date) -> List[Dict]:
+        """Get user's workouts for a specific period"""
+        if not self.client:
+            return []
+
+        try:
+            # Get workouts
+            workouts_response = self.client.table("workout_entries")\
+                .select("*")\
+                .eq("user_id", user_id)\
+                .gte("date", str(start_date))\
+                .lte("date", str(end_date))\
+                .order("date")\
+                .execute()
+
+            if not workouts_response.data:
+                return []
+
+            # Get exercises for these workouts
+            workout_ids = [w["id"] for w in workouts_response.data]
+            exercises_response = self.client.table("exercises")\
+                .select("*")\
+                .in_("workout_id", workout_ids)\
+                .execute()
+
+            # Group exercises by workout_id
+            exercises_by_workout = {}
+            for exercise in exercises_response.data:
+                workout_id = exercise["workout_id"]
+                if workout_id not in exercises_by_workout:
+                    exercises_by_workout[workout_id] = []
+                exercises_by_workout[workout_id].append({
+                    "id": exercise["id"],
+                    "name": exercise["name"],
+                    "sets": exercise.get("sets", 0),
+                    "reps": exercise.get("reps", 0),
+                    "weight": exercise.get("weight", 0),
+                    "notes": exercise.get("notes", ""),
+                    "muscleGroup": exercise.get("muscle_group", ""),
+                    "category": exercise.get("category", ""),
+                    "restSeconds": exercise.get("rest_seconds", 90),
+                    "rpe": exercise.get("rpe", 0),
+                    "setDetails": []  # TODO: Add set details support
+                })
+
+            # Build complete workout objects
+            workouts = []
+            for workout in workouts_response.data:
+                workouts.append({
+                    "id": workout["id"],
+                    "date": workout["date"],
+                    "workoutType": workout.get("workout_type", ""),
+                    "duration": workout.get("duration", 0),
+                    "caloriesBurned": workout.get("calories_burned", 0),
+                    "notes": workout.get("notes", ""),
+                    "exercises": exercises_by_workout.get(workout["id"], [])
+                })
+
+            return workouts
+
+        except Exception as e:
+            print(f"Error getting workouts for period: {str(e)}")
+            return []
+
+    def get_latest_fitness_coaching(self, user_id: str) -> Optional[Dict]:
+        """Get the most recent fitness coaching session for a user"""
+        if not self.client:
+            return None
+
+        try:
+            response = self.client.table("fitness_coaching_sessions")\
+                .select("*")\
+                .eq("user_id", user_id)\
+                .order("week_start_date", desc=True)\
+                .limit(1)\
+                .execute()
+
+            if response.data and len(response.data) > 0:
+                return response.data[0]
+            return None
+
+        except Exception as e:
+            print(f"Error getting latest fitness coaching: {str(e)}")
+            return None
+
+    def save_fitness_coaching_session(self, session_data: Dict) -> bool:
+        """Save a fitness coaching session"""
+        if not self.client:
+            return False
+
+        try:
+            # Prepare session data
+            session_row = {
+                "user_id": session_data["user_id"],
+                "week_start_date": session_data["week_start_date"],
+                "week_end_date": session_data["week_end_date"],
+                "workouts_completed": session_data.get("workouts_completed", 0),
+                "total_volume": session_data.get("total_volume", 0),
+                "total_sets": session_data.get("total_sets", 0),
+                "total_reps": session_data.get("total_reps", 0),
+                "muscle_groups_trained": session_data.get("muscle_groups", {}),
+                "rest_days": session_data.get("rest_days", 0),
+                "avg_workout_duration": int(session_data.get("avg_duration", 0)),
+                "avg_rpe": session_data.get("avg_rpe", 0),
+                "weekly_summary": session_data.get("weekly_summary", ""),
+                "strengths": session_data.get("strengths", []),
+                "areas_for_improvement": session_data.get("areas_for_improvement", []),
+                "motivation_message": session_data.get("motivation_message", ""),
+                "next_week_program": session_data.get("next_week_program", {})
+            }
+
+            # Upsert (insert or update if exists)
+            response = self.client.table("fitness_coaching_sessions").upsert(session_row).execute()
+
+            return True
+
+        except Exception as e:
+            print(f"Error saving fitness coaching session: {str(e)}")
+            return False

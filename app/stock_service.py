@@ -5,6 +5,7 @@ Stock Service for fetching stock prices from Yahoo Finance using yfinance
 import yfinance as yf
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
+import time
 
 
 class StockService:
@@ -15,15 +16,20 @@ class StockService:
     - Turkish stocks (*.IS suffix, e.g., THYAO.IS)
     - US stocks (e.g., AAPL, MSFT, GOOGL)
     - Other markets
+
+    Features:
+    - In-memory cache (10 minutes TTL)
+    - Retry mechanism (up to 3 attempts)
     """
 
     def __init__(self):
-        """Initialize stock service"""
-        pass
+        """Initialize stock service with cache"""
+        self._cache = {}  # Format: {symbol: {'data': {...}, 'timestamp': float}}
+        self._cache_ttl = 600  # 10 minutes
 
     def get_stock_price(self, symbol: str, date: Optional[str] = None) -> Optional[Dict]:
         """
-        Get current or historical stock price
+        Get current or historical stock price with cache and retry
 
         Args:
             symbol: Yahoo Finance symbol (e.g., "THYAO.IS", "AAPL")
@@ -40,42 +46,85 @@ class StockService:
             }
             or None if symbol not found
         """
-        try:
-            ticker = yf.Ticker(symbol.upper())
+        # Check cache for current prices only (not historical)
+        if not date:
+            cache_key = symbol.upper()
+            cached_data = self._get_from_cache(cache_key)
+            if cached_data:
+                print(f"Cache hit for {cache_key}")
+                return cached_data
 
-            if date:
-                # Historical price for specific date
-                start = datetime.strptime(date, "%Y-%m-%d")
-                end = start + timedelta(days=1)
-                hist = ticker.history(start=start, end=end)
+        # Try fetching with retries
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                ticker = yf.Ticker(symbol.upper())
+
+                if date:
+                    # Historical price for specific date
+                    start = datetime.strptime(date, "%Y-%m-%d")
+                    end = start + timedelta(days=1)
+                    hist = ticker.history(start=start, end=end)
+                else:
+                    # Latest price (last 7 days to ensure we get data)
+                    end = datetime.now()
+                    start = end - timedelta(days=7)
+                    hist = ticker.history(start=start, end=end)
+
+                if hist.empty:
+                    print(f"Stock price not found for symbol: {symbol}")
+                    return None
+
+                # Get the last available row
+                last_row = hist.iloc[-1]
+
+                # Get stock info
+                info = ticker.info
+
+                result = {
+                    'symbol': symbol.upper(),
+                    'stock_name': info.get('longName', info.get('shortName', symbol.upper())),
+                    'price': float(last_row['Close']),
+                    'currency': info.get('currency', 'USD'),
+                    'date': last_row.name.strftime("%Y-%m-%d"),
+                    'market': self._extract_market(symbol)
+                }
+
+                # Cache result for current prices
+                if not date:
+                    self._save_to_cache(cache_key, result)
+
+                return result
+
+            except Exception as e:
+                print(f"Attempt {attempt + 1}/{max_retries} failed for {symbol}: {str(e)}")
+                if attempt < max_retries - 1:
+                    # Wait before retry (exponential backoff)
+                    time.sleep(2 ** attempt)  # 1s, 2s, 4s
+                else:
+                    print(f"All retries failed for {symbol}")
+                    return None
+
+        return None
+
+    def _get_from_cache(self, key: str) -> Optional[Dict]:
+        """Get cached data if not expired"""
+        if key in self._cache:
+            cached = self._cache[key]
+            age = time.time() - cached['timestamp']
+            if age < self._cache_ttl:
+                return cached['data']
             else:
-                # Latest price (last 7 days to ensure we get data)
-                end = datetime.now()
-                start = end - timedelta(days=7)
-                hist = ticker.history(start=start, end=end)
+                # Remove expired cache
+                del self._cache[key]
+        return None
 
-            if hist.empty:
-                print(f"Stock price not found for symbol: {symbol}")
-                return None
-
-            # Get the last available row
-            last_row = hist.iloc[-1]
-
-            # Get stock info
-            info = ticker.info
-
-            return {
-                'symbol': symbol.upper(),
-                'stock_name': info.get('longName', info.get('shortName', symbol.upper())),
-                'price': float(last_row['Close']),
-                'currency': info.get('currency', 'USD'),
-                'date': last_row.name.strftime("%Y-%m-%d"),
-                'market': self._extract_market(symbol)
-            }
-
-        except Exception as e:
-            print(f"Error fetching stock price for {symbol}: {str(e)}")
-            return None
+    def _save_to_cache(self, key: str, data: Dict):
+        """Save data to cache"""
+        self._cache[key] = {
+            'data': data,
+            'timestamp': time.time()
+        }
 
     def get_stock_history(self, symbol: str, days: int = 30) -> List[Dict]:
         """
