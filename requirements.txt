@@ -28,6 +28,5 @@ supabase==2.6.0
 # Email (Resend for production, SMTP for local)
 resend==2.4.0
 
-# Stock Market Data
-yfinance>=0.2.48
-websockets>=13.0
+# Stock Market Data - pinned to <1.0 for supabase compatibility (websockets<13 requirement)
+yfinance<1.0
