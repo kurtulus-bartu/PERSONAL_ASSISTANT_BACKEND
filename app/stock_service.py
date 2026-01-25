@@ -23,9 +23,16 @@ class StockService:
     """
 
     def __init__(self):
-        """Initialize stock service with cache"""
+        """Initialize stock service with cache and session"""
         self._cache = {}  # Format: {symbol: {'data': {...}, 'timestamp': float}}
         self._cache_ttl = 600  # 10 minutes
+
+        # Create session with user-agent to avoid rate limiting
+        import requests
+        self._session = requests.Session()
+        self._session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        })
 
     def get_stock_price(self, symbol: str, date: Optional[str] = None) -> Optional[Dict]:
         """
@@ -58,7 +65,8 @@ class StockService:
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                ticker = yf.Ticker(symbol.upper())
+                # Use session to avoid rate limiting
+                ticker = yf.Ticker(symbol.upper(), session=self._session)
 
                 if date:
                     # Historical price for specific date
