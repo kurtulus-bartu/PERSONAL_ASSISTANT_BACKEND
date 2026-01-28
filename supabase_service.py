@@ -996,6 +996,134 @@ class SupabaseService:
             for row in (monthly_expenses.data or [])
         ]
 
+        # Tasks (planner events)
+        tasks_response = self.client.table("tasks") \
+            .select("*") \
+            .eq("user_id", user_id) \
+            .execute()
+        backup_data["tasks"] = [
+            {
+                "id": row["id"],
+                "title": row.get("title", ""),
+                "startDate": row.get("start_date"),
+                "endDate": row.get("end_date"),
+                "color": row.get("color", ""),
+                "notes": row.get("notes", ""),
+                "tag": row.get("tag", ""),
+                "project": row.get("project", ""),
+                "task": row.get("task", ""),
+                "assignedFriendIDs": row.get("assigned_friend_ids") or [],
+                "parentID": row.get("parent_id"),
+                "recurrence": {
+                    "frequency": row.get("recurrence_frequency", "none"),
+                    "interval": row.get("recurrence_interval", 1),
+                    "weekdays": row.get("recurrence_weekdays") or [],
+                    "until": row.get("recurrence_until")
+                } if row.get("recurrence_frequency") else None
+            }
+            for row in (tasks_response.data or [])
+        ]
+
+        # Notes
+        notes_response = self.client.table("notes") \
+            .select("*") \
+            .eq("user_id", user_id) \
+            .execute()
+        backup_data["notes"] = [
+            {
+                "id": row["id"],
+                "title": row.get("title", ""),
+                "content": row.get("content", ""),
+                "tags": row.get("tags", []) or [],
+                "project": row.get("project", ""),
+                "date": row.get("note_date") or row.get("date")
+            }
+            for row in (notes_response.data or [])
+        ]
+
+        # AI Memories (last 200)
+        ai_memories_response = self.client.table("ai_memory_items") \
+            .select("*") \
+            .eq("user_id", user_id) \
+            .order("timestamp", desc=True) \
+            .limit(200) \
+            .execute()
+        backup_data["aiMemories"] = [
+            {
+                "id": row["id"],
+                "content": row.get("content", ""),
+                "category": row.get("category", "general"),
+                "timestamp": row.get("timestamp")
+            }
+            for row in (ai_memories_response.data or [])
+        ]
+
+        # AI Suggestions (last 300)
+        ai_suggestions_response = self.client.table("ai_suggestions") \
+            .select("*") \
+            .eq("user_id", user_id) \
+            .order("timestamp", desc=True) \
+            .limit(300) \
+            .execute()
+        backup_data["aiSuggestions"] = [
+            {
+                "id": row["id"],
+                "type": row.get("type", ""),
+                "description": row.get("description", ""),
+                "status": row.get("status", ""),
+                "metadata": row.get("metadata") or {},
+                "timestamp": row.get("timestamp")
+            }
+            for row in (ai_suggestions_response.data or [])
+        ]
+
+        # Habits
+        habits_response = self.client.table("habits") \
+            .select("*") \
+            .eq("user_id", user_id) \
+            .execute()
+        backup_data["habits"] = [
+            {
+                "id": row["id"],
+                "name": row.get("name", ""),
+                "icon": row.get("icon", "circle.fill"),
+                "color": row.get("color", "#007AFF"),
+                "type": row.get("type", ""),
+                "frequency": row.get("frequency", ""),
+                "weekdays": row.get("weekdays", []) or [],
+                "customInterval": row.get("custom_interval"),
+                "targetValue": row.get("target_value"),
+                "targetUnit": row.get("target_unit"),
+                "checklistItems": row.get("checklist_items"),
+                "reminderEnabled": row.get("reminder_enabled", False),
+                "reminderTime": row.get("reminder_time"),
+                "notes": row.get("notes", ""),
+                "category": row.get("category", "")
+            }
+            for row in (habits_response.data or [])
+        ]
+
+        # Habit Logs (last 300)
+        habit_logs_response = self.client.table("habit_logs") \
+            .select("*") \
+            .eq("user_id", user_id) \
+            .order("date", desc=True) \
+            .limit(300) \
+            .execute()
+        backup_data["habitLogs"] = [
+            {
+                "id": row["id"],
+                "habitId": row.get("habit_id"),
+                "date": row.get("date"),
+                "completed": row.get("completed", False),
+                "value": row.get("value"),
+                "checklistProgress": row.get("checklist_progress"),
+                "notes": row.get("notes", ""),
+                "timestamp": row.get("timestamp")
+            }
+            for row in (habit_logs_response.data or [])
+        ]
+
         # Health Entries
         health_entries = self.client.table("health_entries") \
             .select("*") \

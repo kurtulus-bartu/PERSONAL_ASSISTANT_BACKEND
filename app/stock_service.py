@@ -5,7 +5,6 @@ Stock Service for fetching stock prices from Yahoo Finance using yfinance
 import yfinance as yf
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
-from urllib.parse import quote
 import time
 
 
@@ -54,28 +53,20 @@ class StockService:
             }
             or None if symbol not found
         """
-        symbol_upper = symbol.upper()
-        cache_key = symbol_upper
-
         # Check cache for current prices only (not historical)
         if not date:
+            cache_key = symbol.upper()
             cached_data = self._get_from_cache(cache_key)
             if cached_data:
                 print(f"Cache hit for {cache_key}")
                 return cached_data
-
-        chart_result = self._get_price_from_yahoo_chart(symbol_upper, date)
-        if chart_result:
-            if not date:
-                self._save_to_cache(cache_key, chart_result)
-            return chart_result
 
         # Try fetching with retries
         max_retries = 3
         for attempt in range(max_retries):
             try:
                 # Use session to avoid rate limiting
-                ticker = yf.Ticker(symbol_upper, session=self._session)
+                ticker = yf.Ticker(symbol.upper(), session=self._session)
 
                 if date:
                     # Historical price for specific date
@@ -95,10 +86,10 @@ class StockService:
                         fast_info = ticker.fast_info
                         if hasattr(fast_info, 'last_price') and fast_info.last_price:
                             result = {
-                                'symbol': symbol_upper,
-                                'stock_name': symbol_upper,
+                                'symbol': symbol.upper(),
+                                'stock_name': symbol.upper(),
                                 'price': float(fast_info.last_price),
-                                'currency': fast_info.currency if hasattr(fast_info, 'currency') else ('TRY' if '.IS' in symbol_upper else 'USD'),
+                                'currency': fast_info.currency if hasattr(fast_info, 'currency') else ('TRY' if '.IS' in symbol.upper() else 'USD'),
                                 'date': datetime.now().strftime("%Y-%m-%d"),
                                 'market': self._extract_market(symbol)
                             }
@@ -122,19 +113,15 @@ class StockService:
                     info = {}
 
                 # Fallback stock name if info is empty
-                stock_name = symbol_upper
+                stock_name = symbol.upper()
                 if info:
-                    stock_name = info.get('longName') or info.get('shortName') or symbol_upper
-                if stock_name == symbol_upper:
-                    search_name = self._get_stock_name_from_search(symbol_upper)
-                    if search_name:
-                        stock_name = search_name
+                    stock_name = info.get('longName') or info.get('shortName') or symbol.upper()
 
                 result = {
-                    'symbol': symbol_upper,
+                    'symbol': symbol.upper(),
                     'stock_name': stock_name,
                     'price': float(last_row['Close']),
-                    'currency': info.get('currency', 'TRY' if '.IS' in symbol_upper else 'USD'),
+                    'currency': info.get('currency', 'TRY' if '.IS' in symbol.upper() else 'USD'),
                     'date': last_row.name.strftime("%Y-%m-%d"),
                     'market': self._extract_market(symbol)
                 }
@@ -180,176 +167,6 @@ class StockService:
             'timestamp': time.time()
         }
 
-    def _fetch_yahoo_chart(
-        self,
-        symbol: str,
-        start: Optional[datetime] = None,
-        end: Optional[datetime] = None
-    ) -> Optional[Dict]:
-        symbol_encoded = quote(symbol.upper(), safe="")
-        url = f"https://query2.finance.yahoo.com/v8/finance/chart/{symbol_encoded}"
-        params = {
-            "interval": "1d",
-            "events": "history",
-            "includeAdjustedClose": "true"
-        }
-        if start and end:
-            params["period1"] = int(start.timestamp())
-            params["period2"] = int(end.timestamp())
-        else:
-            params["range"] = "5d"
-
-        try:
-            response = self._session.get(url, params=params, timeout=10)
-        except Exception as e:
-            print(f"Yahoo chart request failed for {symbol}: {str(e)}")
-            return None
-
-        if response.status_code != 200:
-            print(f"Yahoo chart request failed for {symbol}: {response.status_code}")
-            return None
-
-        try:
-            payload = response.json()
-        except ValueError as e:
-            print(f"Yahoo chart JSON parse failed for {symbol}: {str(e)}")
-            return None
-
-        chart = payload.get("chart", {})
-        if chart.get("error"):
-            print(f"Yahoo chart error for {symbol}: {chart['error']}")
-            return None
-
-        result = chart.get("result")
-        if not result:
-            print(f"Yahoo chart result missing for {symbol}")
-            return None
-
-        return result[0]
-
-    def _get_stock_name_from_search(self, symbol: str) -> Optional[str]:
-        url = "https://query2.finance.yahoo.com/v1/finance/search"
-        params = {"q": symbol.upper(), "quotesCount": 5, "newsCount": 0}
-        try:
-            response = self._session.get(url, params=params, timeout=10)
-        except Exception as e:
-            print(f"Yahoo search request failed for {symbol}: {str(e)}")
-            return None
-
-        if response.status_code != 200:
-            return None
-
-        try:
-            payload = response.json()
-        except ValueError:
-            return None
-
-        quotes = payload.get("quotes") or []
-        symbol_upper = symbol.upper()
-        for quote in quotes:
-            if quote.get("symbol", "").upper() == symbol_upper:
-                return quote.get("longname") or quote.get("shortname")
-
-        if quotes:
-            return quotes[0].get("longname") or quotes[0].get("shortname")
-
-        return None
-
-    def _get_price_from_yahoo_chart(self, symbol: str, date: Optional[str] = None) -> Optional[Dict]:
-        if date:
-            try:
-                start = datetime.strptime(date, "%Y-%m-%d")
-            except ValueError:
-                print(f"Invalid date format for {symbol}: {date}")
-                return None
-            end = start + timedelta(days=1)
-            chart = self._fetch_yahoo_chart(symbol, start=start, end=end)
-        else:
-            chart = self._fetch_yahoo_chart(symbol)
-
-        if not chart:
-            return None
-
-        meta = chart.get("meta", {})
-        timestamps = chart.get("timestamp") or []
-        quotes = chart.get("indicators", {}).get("quote") or []
-        closes = quotes[0].get("close") if quotes else []
-
-        price = None
-        price_ts = None
-        if not date:
-            price = meta.get("regularMarketPrice")
-            price_ts = meta.get("regularMarketTime")
-
-        if price is None or price_ts is None:
-            for ts, close in reversed(list(zip(timestamps, closes))):
-                if close is None:
-                    continue
-                price = close
-                price_ts = ts
-                break
-
-        if price is None:
-            return None
-
-        if price_ts:
-            price_date = datetime.utcfromtimestamp(price_ts).strftime("%Y-%m-%d")
-        else:
-            price_date = datetime.utcnow().strftime("%Y-%m-%d")
-
-        symbol_upper = symbol.upper()
-        stock_name = self._get_stock_name_from_search(symbol_upper) or symbol_upper
-
-        return {
-            'symbol': symbol_upper,
-            'stock_name': stock_name,
-            'price': float(price),
-            'currency': meta.get('currency', 'TRY' if '.IS' in symbol_upper else 'USD'),
-            'date': price_date,
-            'market': self._extract_market(symbol)
-        }
-
-    def _get_stock_history_from_yahoo_chart(self, symbol: str, days: int) -> List[Dict]:
-        end_date = datetime.utcnow()
-        start_date = end_date - timedelta(days=days)
-        chart = self._fetch_yahoo_chart(symbol, start=start_date, end=end_date)
-        if not chart:
-            return []
-
-        timestamps = chart.get("timestamp") or []
-        quotes = chart.get("indicators", {}).get("quote") or []
-        if not timestamps or not quotes:
-            return []
-
-        quote = quotes[0]
-        opens = quote.get("open") or []
-        highs = quote.get("high") or []
-        lows = quote.get("low") or []
-        closes = quote.get("close") or []
-        volumes = quote.get("volume") or []
-
-        history = []
-        for idx, ts in enumerate(timestamps):
-            close = closes[idx] if idx < len(closes) else None
-            if close is None:
-                continue
-
-            open_price = opens[idx] if idx < len(opens) and opens[idx] is not None else close
-            high = highs[idx] if idx < len(highs) and highs[idx] is not None else close
-            low = lows[idx] if idx < len(lows) and lows[idx] is not None else close
-            volume = volumes[idx] if idx < len(volumes) and volumes[idx] is not None else 0
-
-            history.append({
-                'date': datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d"),
-                'price': float(close),
-                'open': float(open_price),
-                'high': float(high),
-                'low': float(low),
-                'volume': int(volume)
-            })
-
-        return history
-
     def get_stock_history(self, symbol: str, days: int = 30) -> List[Dict]:
         """
         Get historical stock price data
@@ -365,14 +182,10 @@ class StockService:
                 ...
             ]
         """
-        chart_history = self._get_stock_history_from_yahoo_chart(symbol, days)
-        if chart_history:
-            return chart_history
-
         try:
-            ticker = yf.Ticker(symbol.upper(), session=self._session)
+            ticker = yf.Ticker(symbol.upper())
 
-            end_date = datetime.utcnow()
+            end_date = datetime.now()
             start_date = end_date - timedelta(days=days)
 
             hist = ticker.history(start=start_date, end=end_date)

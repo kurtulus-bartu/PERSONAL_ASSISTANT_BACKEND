@@ -167,7 +167,10 @@ class AIDataProvider:
 
         # Apply additional filters
         if "status" in filters:
-            tasks = [t for t in tasks if t.get("task") == filters["status"]]
+            tasks = [
+                t for t in tasks
+                if (t.get("task") or t.get("status")) == filters["status"]
+            ]
 
         if "project" in filters:
             tasks = [t for t in tasks if t.get("project") == filters["project"]]
@@ -182,7 +185,7 @@ class AIDataProvider:
                 "title": t.get("title"),
                 "start_date": t.get("startDate"),
                 "end_date": t.get("endDate"),
-                "status": t.get("task"),
+                "status": t.get("task") or t.get("status"),
                 "project": t.get("project"),
                 "tag": t.get("tag"),
                 "notes": t.get("notes")

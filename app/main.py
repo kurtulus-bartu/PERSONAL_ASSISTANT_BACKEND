@@ -94,7 +94,7 @@ ROL VE AMAÇ:
 
 ÖNERİ TİPLERİ:
 1. **meal** - Öğün önerileri (Kahvaltı, Öğle, Akşam, Atıştırmalık)
-   - Metadata: mealType, date, calories, title, notes
+   - Metadata: mealType, date, time, calories, title, menu, notes
 
 2. **task** - Görev önerileri (yapılacaklar, hatırlatmalar)
    - Metadata: title, date, time, durationMinutes, notes, priority
@@ -111,12 +111,14 @@ ROL VE AMAÇ:
    - frequency: daily, weekly, custom
 
 ÖNERİ STRATEJİSİ - ÖNEMLİ:
-- **CURRENT TIME'I KONTROL ET**: current_datetime.time ve current_datetime.hour kullan
+- **TARGET DATE KULLAN**: target_date hedef gündür. Tarih alanlarında target_date kullan.
+- **CURRENT TIME'I KONTROL ET**: Eğer target_date bugünün tarihiyse current_datetime.time ve current_datetime.hour kullan. target_date bugünden farklıysa zaman kısıtı uygulama.
 - **PENDING SUGGESTIONS'I KONTROL ET**: pending_suggestions listesinde olanları TEKRAR ÖNERME
-- **BUGÜNKÜ ETKİNLİKLERİ KONTROL ET**: todays_events listesinde zamanlı etkinlikler var - ÇAKIŞMA YAPMA
-- **BUGÜNKÜ ÖĞÜNLERİ KONTROL ET**: todays_meals listesinde bugün yenmiş öğünler var - TEKRAR ÖNERME
-- **ZAMAN ODAKLI**: Şu andan SONRASI için öneri ver (geçmiş saatler için değil)
+- **HEDEF GÜN ETKİNLİKLERİ**: todays_events listesi target_date içindir - ÇAKIŞMA YAPMA
+- **HEDEF GÜN ÖĞÜNLERİ**: todays_meals listesi target_date içindir - TEKRAR ÖNERME
+- **ZAMAN ODAKLI**: target_date bugünse şu andan SONRASI için öneri ver (geçmiş saatler için değil)
 - **BOŞ ZAMAN DİLİMLERİ**: todays_events'teki etkinlikler arasındaki boş saatleri bul ve öner
+- **BOŞ PLAN**: target_date için plan/öğün eksikse en az 1 uygun öneri üret
 - **ÖNERI ZORUNLU DEĞİL**: Uygun öneri yoksa hiç öneri vermeden dön (boş liste = OK)
 - **DENGELI DAĞILIM**: Uygun öneriler varsa farklı tip öneriler sun:
   * meal (yemek - todays_meals'de olmayan öğünler için)
@@ -127,7 +129,8 @@ ROL VE AMAÇ:
 ÖNERİ DETAYLARı:
 - **meal**:
   * todays_meals listesini kontrol et - zaten yenmiş öğünü TEKRAR ÖNERME
-  * Sadece henüz geçmemiş öğünler için (örn: saat 14:00 ise kahvaltı önerme, akşam yemeği öner)
+  * target_date bugünse sadece henüz geçmemiş öğünler için öneri ver (örn: saat 14:00 ise kahvaltı önerme)
+  * Menü bilgisini **menu** alanında ver. Menu öğelerini **|** ile ayır (virgül kullanma).
   * Öğün tipleri: Kahvaltı (07:00-09:00), Öğle (12:00-14:00), Akşam (18:00-20:00), Atıştırmalık
 
 - **task**:
@@ -168,7 +171,7 @@ YENİ HAFIZA EKLEVERİLERİ:
 ÇIKTI KURALLARI:
 - SADECE SUGGESTION ve MEMORY tagları yaz. Başka metin ekleme.
 - Format örnekleri:
-  <SUGGESTION type="meal">ACIKLAMA [metadata:mealType=Akşam,date=2026-01-11,time=19:00,calories=600,title=Izgara tavuk ve sebze,notes=Protein ağırlıklı]</SUGGESTION>
+  <SUGGESTION type="meal">ACIKLAMA [metadata:mealType=Akşam,date=2026-01-11,time=19:00,calories=600,title=Izgara tavuk ve sebze,menu=Izgara tavuk|Bulgur pilavı|Mevsim salata,notes=Protein ağırlıklı]</SUGGESTION>
   <SUGGESTION type="task">ACIKLAMA [metadata:title=Haftalık plan yap,date=2026-01-11,time=20:00,durationMinutes=30,priority=medium]</SUGGESTION>
   <SUGGESTION type="event">ACIKLAMA [metadata:title=30 dakika yürüyüş,date=2026-01-11,time=17:30,durationMinutes=30,location=Park]</SUGGESTION>
   <SUGGESTION type="note">ACIKLAMA [metadata:title=Bugünün öğrendikleri,date=2026-01-11,category=Öğrenme]</SUGGESTION>
@@ -178,13 +181,13 @@ YENİ HAFIZA EKLEVERİLERİ:
 KURALLAR - ÇOK ÖNEMLİ:
 - **ÖNERİ ZORUNLU DEĞİL**: Uygun öneri yoksa hiçbir SUGGESTION tag'i yazma (boş dönüş = OK)
 - **PENDING'LERE BAK**: pending_suggestions listesindeki önerilerle AYNI öneriyi verme
-- **SAATTEN SONRA**: current_datetime.hour'dan SONRAKI saatler için öner
-- **BUGÜN İÇİN**: date her zaman current_datetime.date olmalı (bugün)
+- **SAATTEN SONRA**: target_date bugünse current_datetime.hour'dan SONRAKI saatler için öner
+- **HEDEF GÜN**: date her zaman target_date olmalı
 - **ÇAKIŞMA YASAK**: todays_events ile çakışan saatlerde event ÖNERME (takvim kontrolü yap)
 - **TEKRAR YASAK**: todays_meals'de olan öğünü TEKRAR önerme
 - **TIME EKLE**: Her öneride mutlaka time belirt (meal, task, event için)
 - **BOŞ ZAMAN BUL**: event önerirken todays_events arasındaki boşlukları kullan
-- Metadata değerlerinde virgül kullanma (gerekirse tire veya ve kullan)
+- Metadata değerlerinde virgül kullanma (gerekirse tire veya ve kullan). Menüde **|** kullan.
 - calories sadece sayı olsun (örn: 450, kcal yazma)
 - date formatı: YYYY-MM-DD
 - time formatı: HH:MM (örn: 09:00, 14:30)
@@ -266,6 +269,8 @@ DÜZENLEME VS YENİ ÖNERI:
 # Phase-specific prompts for better focused AI generation
 MEAL_SUGGESTIONS_PROMPT = """Sen kullanıcının kişisel asistanısın. SADECE YEMEK ÖNERİLERİ üret.
 
+HEDEF TARİH: {target_date}
+
 BUGÜNKÜ ÖĞÜNLERİ KONTROL ET: {todays_meals}
 - Eğer bir öğün zaten yenildiyse TEKRAR ÖNERME
 - Sadece henüz tüketilmemiş öğünler için öneri ver
@@ -279,21 +284,24 @@ KULLANICI TERCİHLERİ: {recent_meals}
 - Hafızadaki bilgileri (ai_memories) kullan
 
 CURRENT TIME: {current_datetime}
-- Geçmiş saatler için öneri verme
-- Sadece şu andan sonrası için öner
+- Eğer hedef tarih bugünse geçmiş saatler için öneri verme
+- Hedef tarih bugün değilse zaman kısıtı uygulama
 
 <SUGGESTION type="meal">
-Açıklama [metadata:mealType=Breakfast,time=09:00,calories=450,title=Yumurta ve sebze]
+Açıklama [metadata:mealType=Kahvaltı,date=2026-01-23,time=09:00,calories=450,title=Yumurta ve sebze,menu=Yumurta|Avokado|Tam buğday ekmeği]
 </SUGGESTION>
 
 KURALLAR:
 - En fazla 3 yemek öner
 - ZORUNLU DEĞİL - uygun değilse hiç önerme
-- Metadata: mealType, time, calories, title, notes
+- Metadata: mealType, date, time, calories, title, menu, notes
+- Menu öğelerini **|** ile ayır (virgül kullanma)
 - Öğün tipleri: Kahvaltı (07:00-09:00), Öğle (12:00-14:00), Akşam (18:00-20:00), Atıştırmalık
 """
 
 TASK_SUGGESTIONS_PROMPT = """Sen kullanıcının kişisel asistanısın. SADECE GÖREV ÖNERİLERİ üret.
+
+HEDEF TARİH: {target_date}
 
 MEVCUT GÖREVLER: {pending_tasks}
 - Tamamlanmamış görevleri dikkate al
@@ -304,7 +312,7 @@ HAFIZA: {ai_memories}
 - Kullanıcının hedeflerini ve alışkanlıklarını dikkate al
 
 CURRENT TIME: {current_datetime}
-- Bugün ve yakın gelecek için görevler
+- Hedef tarihte yapılabilecek görevler öner
 
 <SUGGESTION type="task">
 Açıklama [metadata:title=Haftalık plan yap,date=2026-01-23,time=20:00,durationMinutes=30,priority=medium]
@@ -319,6 +327,8 @@ KURALLAR:
 
 EVENT_SUGGESTIONS_PROMPT = """Sen kullanıcının kişisel asistanısın. SADECE ETKİNLİK ÖNERİLERİ üret.
 
+HEDEF TARİH: {target_date}
+
 BUGÜNKÜ ETKİNLİKLER: {todays_events}
 - BOŞ zaman dilimlerini bul
 - ÇAKIŞMA YAPMA - mevcut etkinliklerin arasına sığdır
@@ -328,7 +338,7 @@ HAFIZA: {ai_memories}
 - Kullanıcının spor, sosyal, dinlenme alışkanlıklarını dikkate al
 
 CURRENT TIME: {current_datetime}
-- Sadece boş zaman dilimlerinde öneri ver
+- Hedef tarih bugünse sadece boş zaman dilimlerinde öneri ver
 
 <SUGGESTION type="event">
 Açıklama [metadata:title=30 dakika yürüyüş,date=2026-01-23,time=17:30,durationMinutes=30,location=Park]
@@ -339,6 +349,27 @@ KURALLAR:
 - ZORUNLU DEĞİL - boş zaman yoksa hiç önerme
 - Metadata: title, date, time, durationMinutes, location, notes
 - Sadece BOŞ saatlerde öneri ver (todays_events arasını kontrol et)
+"""
+
+HABIT_SUGGESTIONS_PROMPT = """Sen kullanıcının kişisel asistanısın. SADECE ALIŞKANLIK ÖNERİLERİ üret.
+
+HEDEF TARİH: {target_date}
+
+MEVCUT ALIŞKANLIKLAR: {existing_habits}
+- Zaten eklenmiş alışkanlıkları TEKRAR ÖNERME
+- Başlangıç için kolay ve sürdürülebilir alışkanlıklar öner
+
+HAFIZA: {ai_memories}
+- Kullanıcının hedeflerini ve tercihlerini dikkate al
+
+<SUGGESTION type="habit">
+Açıklama [metadata:name=Günde 8 bardak su iç,habitType=numeric,category=Sağlık,targetValue=8,targetUnit=bardak,frequency=daily,notes=Hidrasyonu artır]
+</SUGGESTION>
+
+KURALLAR:
+- En fazla 2 alışkanlık öner
+- ZORUNLU DEĞİL - uygun değilse hiç önerme
+- Metadata: name, habitType, category, targetValue, targetUnit, frequency, notes
 """
 
 # Fitness Coach System Prompt
@@ -442,8 +473,228 @@ def _parse_iso_date(value: str) -> Optional[datetime]:
         return None
 
 
-def _build_daily_suggestions_context(backup_data: Dict[str, Any]) -> str:
+def _normalize_text(value: str) -> str:
+    import re
+    normalized = re.sub(r"\s+", " ", value or "").strip().lower()
+    return normalized
+
+
+def _is_valid_time(value: Optional[str]) -> bool:
+    if not value:
+        return False
+    parts = value.split(":")
+    if len(parts) != 2:
+        return False
+    if not parts[0].isdigit() or not parts[1].isdigit():
+        return False
+    hour = int(parts[0])
+    minute = int(parts[1])
+    return 0 <= hour <= 23 and 0 <= minute <= 59
+
+
+def _default_time_for_meal_type(meal_type: str) -> str:
+    meal = (meal_type or "").lower()
+    if "kahvalt" in meal:
+        return "08:00"
+    if "öğle" in meal or "ogle" in meal:
+        return "13:00"
+    if "akşam" in meal or "aksam" in meal:
+        return "19:00"
+    return "16:00"
+
+
+def _infer_meal_type_from_time(time_value: Optional[str]) -> str:
+    if not _is_valid_time(time_value or ""):
+        return "Kahvaltı"
+    hour = int((time_value or "08:00").split(":")[0])
+    if 6 <= hour < 11:
+        return "Kahvaltı"
+    if 11 <= hour < 16:
+        return "Öğle"
+    if 17 <= hour < 21:
+        return "Akşam"
+    return "Atıştırmalık"
+
+
+def _parse_menu_items(raw: str) -> List[str]:
+    import re
+    if not raw:
+        return []
+    cleaned = raw.replace("•", "|")
+    parts = re.split(r"\s*\|\s*|\s*;\s*|\s*,\s*|\s*\n\s*", cleaned)
+    items = [part.strip() for part in parts if part and part.strip()]
+    return items[:6]
+
+
+def _apply_menu_metadata(metadata: Dict[str, str], description: str) -> None:
+    raw_menu = metadata.get("menu") or ""
+    if not raw_menu and "menuItems" in metadata:
+        raw_menu = metadata.get("menuItems", "")
+    if not raw_menu and "|" in (metadata.get("title") or ""):
+        raw_menu = metadata.get("title", "")
+    if not raw_menu and description:
+        raw_menu = description
+
+    items = _parse_menu_items(raw_menu)
+    if not items:
+        return
+
+    normalized_menu = "|".join(items)
+    metadata["menu"] = normalized_menu
+    metadata["menuItems"] = " | ".join(items)
+
+    for idx, item in enumerate(items[:5], 1):
+        metadata[f"menuItem{idx}"] = item
+
+    if "title" not in metadata or not metadata.get("title"):
+        metadata["title"] = items[0]
+
+
+def _normalize_metadata(metadata: Dict[str, Any]) -> Dict[str, str]:
+    normalized: Dict[str, str] = {}
+    for key, value in (metadata or {}).items():
+        if value is None:
+            continue
+        value_str = str(value).strip()
+        if not value_str:
+            continue
+        normalized[str(key)] = value_str
+    return normalized
+
+
+def _normalize_suggestion(
+    suggestion: Dict[str, Any],
+    target_date: Optional[str]
+) -> Optional[Dict[str, Any]]:
+    if not isinstance(suggestion, dict):
+        return None
+
+    suggestion_type = (suggestion.get("type") or "").strip().lower()
+    if not suggestion_type:
+        return None
+
+    allowed_types = {"meal", "task", "event", "note", "habit", "general", "edit"}
+    if suggestion_type not in allowed_types:
+        return None
+
+    description = (suggestion.get("description") or "").strip()
+    if not description:
+        return None
+
+    metadata = _normalize_metadata(suggestion.get("metadata") or {})
+
+    # Common aliases
+    if "startTime" in metadata and "time" not in metadata:
+        metadata["time"] = metadata["startTime"]
+    if "meal_type" in metadata and "mealType" not in metadata:
+        metadata["mealType"] = metadata["meal_type"]
+    if "calorie" in metadata and "calories" not in metadata:
+        metadata["calories"] = metadata["calorie"]
+
+    # Normalize date
+    if target_date and suggestion_type in {"meal", "task", "event", "note"}:
+        metadata["date"] = target_date
+        metadata.setdefault("forDate", target_date)
+
+    # Normalize time
+    if suggestion_type in {"meal", "task", "event"}:
+        if not _is_valid_time(metadata.get("time")):
+            if suggestion_type == "meal":
+                metadata["time"] = _default_time_for_meal_type(metadata.get("mealType", ""))
+            else:
+                metadata["time"] = "09:00"
+
+    # Ensure meal metadata
+    if suggestion_type == "meal":
+        if not metadata.get("mealType"):
+            metadata["mealType"] = _infer_meal_type_from_time(metadata.get("time"))
+
+        if "calories" in metadata:
+            digits = [ch for ch in metadata["calories"] if ch.isdigit()]
+            if digits:
+                metadata["calories"] = "".join(digits)
+            else:
+                metadata.pop("calories", None)
+
+        _apply_menu_metadata(metadata, description)
+
+    # Defaults for task/event
+    if suggestion_type == "event" and "durationMinutes" not in metadata:
+        metadata["durationMinutes"] = "60"
+    if suggestion_type == "task" and "durationMinutes" not in metadata:
+        metadata["durationMinutes"] = "30"
+
+    # Defaults for note/habit
+    if suggestion_type == "note" and "title" not in metadata:
+        metadata["title"] = description[:60]
+    if suggestion_type == "habit" and "name" not in metadata:
+        metadata["name"] = description[:60]
+
+    return {
+        "type": suggestion_type,
+        "description": description,
+        "metadata": metadata
+    }
+
+
+def _suggestion_key(suggestion: Dict[str, Any], default_date: Optional[str]) -> Optional[str]:
+    if not suggestion:
+        return None
+    suggestion_type = (suggestion.get("type") or "").strip().lower()
+    if not suggestion_type:
+        return None
+    metadata = suggestion.get("metadata") or {}
+    date_value = metadata.get("forDate") or metadata.get("date") or default_date or ""
+    time_value = metadata.get("time") or metadata.get("startTime") or ""
+    title_value = metadata.get("title") or metadata.get("name") or metadata.get("mealType") or ""
+    menu_value = metadata.get("menu") or metadata.get("menuItems") or ""
+    description = suggestion.get("description", "")
+    key_text = f"{title_value}|{menu_value}|{description}"
+    return f"{suggestion_type}|{date_value}|{time_value}|{_normalize_text(key_text)}"
+
+
+def _normalize_and_filter_suggestions(
+    suggestions: List[Dict[str, Any]],
+    existing_suggestions: List[Dict[str, Any]],
+    target_date: Optional[str]
+) -> List[Dict[str, Any]]:
+    existing_keys = set()
+    for existing in existing_suggestions:
+        key = _suggestion_key(existing, target_date)
+        if key:
+            existing_keys.add(key)
+
+    filtered: List[Dict[str, Any]] = []
+    for suggestion in suggestions:
+        normalized = _normalize_suggestion(suggestion, target_date)
+        if not normalized:
+            continue
+        key = _suggestion_key(normalized, target_date)
+        if key and key in existing_keys:
+            continue
+        if key:
+            existing_keys.add(key)
+        filtered.append(normalized)
+
+    return filtered
+
+
+def _build_daily_suggestions_context(
+    backup_data: Dict[str, Any],
+    target_date: Optional[str] = None,
+    week_days: int = 7
+) -> str:
     """Build comprehensive context for AI suggestions including all user data"""
+
+    # Resolve target date
+    if target_date:
+        parsed_target = _parse_iso_date(target_date)
+        resolved_target = parsed_target.date().isoformat() if parsed_target else target_date[:10]
+    else:
+        resolved_target = datetime.now().date().isoformat()
+
+    target_date_obj = datetime.fromisoformat(resolved_target).date()
+    week_end = target_date_obj + timedelta(days=max(week_days - 1, 0))
 
     # Extract all data types
     meals = backup_data.get("mealEntries", [])
@@ -454,6 +705,8 @@ def _build_daily_suggestions_context(backup_data: Dict[str, Any]) -> str:
     notes = backup_data.get("notes", [])
     ai_memories = backup_data.get("aiMemories", [])
     ai_suggestions = backup_data.get("aiSuggestions", [])
+    habits = backup_data.get("habits", [])
+    habit_logs = backup_data.get("habitLogs", [])
 
     def meal_key(entry: Dict[str, Any]) -> datetime:
         raw = str(entry.get("date", ""))
@@ -514,35 +767,84 @@ def _build_daily_suggestions_context(backup_data: Dict[str, Any]) -> str:
         for w in workouts[-7:]
     ]
 
+    def _task_datetime(value: Any) -> Optional[datetime]:
+        if value is None:
+            return None
+        parsed = _parse_iso_date(str(value))
+        return parsed
+
+    def _is_task_entry(task: Dict[str, Any]) -> bool:
+        start_dt = _task_datetime(task.get("startDate"))
+        end_dt = _task_datetime(task.get("endDate"))
+        if not start_dt or not end_dt:
+            return True
+        return start_dt == end_dt
+
+    def _task_completed(task: Dict[str, Any]) -> bool:
+        status = str(task.get("task", "")).strip().lower()
+        return status == "done"
+
     # Pending/incomplete tasks
-    pending_tasks = [
-        {
-            "title": t.get("title", ""),
-            "completed": t.get("completed", False),
-            "priority": t.get("priority", "medium"),
-            "dueDate": str(t.get("dueDate", ""))[:10] if t.get("dueDate") else None,
-            "tags": t.get("tags", [])
-        }
-        for t in tasks
-        if not t.get("completed", False)
-    ][:15]  # Limit to 15 pending tasks
+    pending_tasks = []
+    for task in tasks:
+        if not _is_task_entry(task):
+            continue
+        if _task_completed(task):
+            continue
 
-    # Today's scheduled events (to find free time slots)
-    today = datetime.now().date().isoformat()
-    todays_events = [
-        {
-            "title": t.get("title", ""),
-            "startDate": str(t.get("startDate", ""))[:16],  # YYYY-MM-DD HH:MM
-            "endDate": str(t.get("endDate", ""))[:16],
-            "startTime": str(t.get("startDate", ""))[11:16] if len(str(t.get("startDate", ""))) > 11 else None,
-            "endTime": str(t.get("endDate", ""))[11:16] if len(str(t.get("endDate", ""))) > 11 else None,
-            "tags": t.get("tags", [])
-        }
-        for t in tasks
-        if str(t.get("startDate", ""))[:10] == today and not t.get("completed", False)
-    ]
+        start_dt = _task_datetime(task.get("startDate"))
+        pending_tasks.append({
+            "title": task.get("title", ""),
+            "completed": False,
+            "priority": task.get("priority", "medium"),
+            "dueDate": start_dt.date().isoformat() if start_dt else None,
+            "tags": [task.get("tag")] if task.get("tag") else []
+        })
+    pending_tasks = pending_tasks[:15]
 
-    # Today's meals (to avoid duplicate meal suggestions)
+    # Events for target date (to find free time slots)
+    todays_events = []
+    for task in tasks:
+        if _is_task_entry(task):
+            continue
+        if _task_completed(task):
+            continue
+        start_dt = _task_datetime(task.get("startDate"))
+        end_dt = _task_datetime(task.get("endDate"))
+        if not start_dt or start_dt.date() != target_date_obj:
+            continue
+
+        todays_events.append({
+            "title": task.get("title", ""),
+            "startDate": start_dt.isoformat() if start_dt else "",
+            "endDate": end_dt.isoformat() if end_dt else "",
+            "startTime": start_dt.strftime("%H:%M") if start_dt else None,
+            "endTime": end_dt.strftime("%H:%M") if end_dt else None,
+            "tags": [task.get("tag")] if task.get("tag") else []
+        })
+
+    # Events for the target week (for weekly planning)
+    week_events = []
+    for task in tasks:
+        if _is_task_entry(task):
+            continue
+        if _task_completed(task):
+            continue
+        start_dt = _task_datetime(task.get("startDate"))
+        end_dt = _task_datetime(task.get("endDate"))
+        if not start_dt:
+            continue
+        if not (target_date_obj <= start_dt.date() <= week_end):
+            continue
+        week_events.append({
+            "date": start_dt.date().isoformat(),
+            "title": task.get("title", ""),
+            "startTime": start_dt.strftime("%H:%M") if start_dt else None,
+            "endTime": end_dt.strftime("%H:%M") if end_dt else None,
+            "tags": [task.get("tag")] if task.get("tag") else []
+        })
+
+    # Meals for target date (to avoid duplicate meal suggestions)
     todays_meals = [
         {
             "mealType": m.get("mealType"),
@@ -550,7 +852,7 @@ def _build_daily_suggestions_context(backup_data: Dict[str, Any]) -> str:
             "calories": m.get("calories", 0)
         }
         for m in meals
-        if str(m.get("date", ""))[:10] == today
+        if str(m.get("date", ""))[:10] == resolved_target
     ]
 
     # Recent notes (last 10)
@@ -572,31 +874,28 @@ def _build_daily_suggestions_context(backup_data: Dict[str, Any]) -> str:
         for m in ai_memories
     ]
 
-    # Recent accepted suggestions (last 5)
+    # Recent accepted suggestions (last 10)
     accepted_suggestions = [
         {
             "type": s.get("type", ""),
-            "description": (s.get("description", "") or "")[:100],
-            "status": s.get("status", "")
+            "description": (s.get("description", "") or "")[:120],
+            "status": s.get("status", ""),
+            "metadata": s.get("metadata", {})
         }
         for s in ai_suggestions
         if s.get("status") == "accepted"
-    ][-5:]
+    ][:10]
 
     # Pending suggestions (to avoid duplicates)
     pending_suggestions = [
         {
             "type": s.get("type", ""),
-            "description": (s.get("description", "") or "")[:100],
+            "description": (s.get("description", "") or "")[:120],
             "metadata": s.get("metadata", {})
         }
         for s in ai_suggestions
         if s.get("status") == "pending"
-    ]
-
-    # Habit tracking data
-    habits = backup_data.get("habits", [])
-    habit_logs = backup_data.get("habitLogs", [])
+    ][:100]
 
     # Existing habits
     existing_habits = [
@@ -609,29 +908,37 @@ def _build_daily_suggestions_context(backup_data: Dict[str, Any]) -> str:
         for h in habits
     ]
 
-    # Today's habit completions
-    today = datetime.now().date().isoformat()
+    # Target date habit completions
     todays_habit_logs = [
         {
             "habitName": next((h.get("name") for h in habits if h.get("id") == log.get("habitId")), "Unknown"),
             "completed": log.get("completed", False)
         }
         for log in habit_logs
-        if str(log.get("date", ""))[:10] == today
+        if str(log.get("date", ""))[:10] == resolved_target
     ]
 
-    # Current date and time
+    # Current date and time (aligned to target date if needed)
     now = datetime.now()
+    if target_date_obj == now.date():
+        current_base = now
+    else:
+        current_base = datetime.combine(target_date_obj, datetime.min.time()).replace(hour=6, minute=0)
     current_datetime = {
-        "date": now.date().isoformat(),
-        "time": now.strftime("%H:%M"),
-        "hour": now.hour,
-        "day_of_week": now.strftime("%A"),
-        "day_of_week_tr": ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"][now.weekday()]
+        "date": target_date_obj.isoformat(),
+        "time": current_base.strftime("%H:%M"),
+        "hour": current_base.hour,
+        "day_of_week": target_date_obj.strftime("%A"),
+        "day_of_week_tr": ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"][target_date_obj.weekday()]
     }
 
     context = {
         "current_datetime": current_datetime,
+        "target_date": resolved_target,
+        "week_range": {
+            "start": target_date_obj.isoformat(),
+            "end": week_end.isoformat()
+        },
         "recent_meals": compact_meals,
         "avg_daily_calories": avg_daily_calories,
         "recent_health": compact_health,
@@ -639,6 +946,7 @@ def _build_daily_suggestions_context(backup_data: Dict[str, Any]) -> str:
         "recent_workouts": compact_workouts,
         "pending_tasks": pending_tasks,
         "todays_events": todays_events,
+        "week_events": week_events,
         "todays_meals": todays_meals,
         "recent_notes": recent_notes,
         "ai_memories": memories,
@@ -648,7 +956,7 @@ def _build_daily_suggestions_context(backup_data: Dict[str, Any]) -> str:
         "todays_habit_logs": todays_habit_logs
     }
 
-    return json.dumps(context, ensure_ascii=False)
+    return context
 
 
 # Health check
@@ -1278,8 +1586,8 @@ async def cron_hourly_check():
         processed_count = 0
         skipped_count = 0
         errors = []
-        # Generate suggestions for today (not tomorrow)
-        target_date = datetime.now().date().isoformat()
+        # Generate suggestions for the upcoming week (starting today)
+        start_date = datetime.now().date().isoformat()
         now = datetime.now(timezone.utc)
 
         for user_id in all_user_ids:
@@ -1294,15 +1602,25 @@ async def cron_hourly_check():
                         skipped_count += 1
                         continue
 
-                # Generate AI suggestions with force=True to allow multiple runs per day
-                await generate_ai_suggestions_for_user(
+                # Generate AI suggestions for the full week
+                await generate_weekly_suggestions_for_user(
                     user_id=user_id,
-                    target_date=target_date,
-                    include_general=True,  # Include all types: meals, tasks, events, notes
-                    force=True  # Allow multiple suggestions per day
+                    start_date=start_date,
+                    days=7,
+                    include_general=True,  # Include all types: meals, tasks, events, notes, habits
+                    force=False  # Skip if suggestions already exist for a date
                 )
 
                 processed_count += 1
+
+                # Send daily emails (morning hours only: 7-9 AM)
+                current_hour = datetime.now().hour
+                if 7 <= current_hour <= 9:
+                    try:
+                        await check_and_send_friend_emails(user_id)
+                        await check_and_send_personal_email(user_id)
+                    except Exception as email_error:
+                        print(f"Email error for user {user_id}: {str(email_error)}")
 
             except Exception as e:
                 errors.append({
@@ -1315,7 +1633,7 @@ async def cron_hourly_check():
             "processed_users": processed_count,
             "skipped_users": skipped_count,
             "total_users": len(all_user_ids),
-            "target_date": target_date,
+            "start_date": start_date,
             "errors": errors
         }
 
@@ -1598,6 +1916,42 @@ async def generate_ai_suggestions_for_user(
         raise
 
 
+async def generate_weekly_suggestions_for_user(
+    user_id: str,
+    start_date: Optional[str] = None,
+    days: int = 7,
+    include_general: bool = True,
+    force: bool = False,
+    use_phased: bool = True
+):
+    """Generate suggestions for an upcoming week (day-by-day)."""
+    if start_date:
+        parsed_start = _parse_iso_date(start_date)
+        base_date = parsed_start.date() if parsed_start else datetime.fromisoformat(start_date[:10]).date()
+    else:
+        base_date = datetime.now().date()
+
+    for offset in range(max(days, 1)):
+        target = (base_date + timedelta(days=offset)).isoformat()
+        try:
+            if use_phased:
+                await _generate_daily_suggestions_phased(
+                    user_id=user_id,
+                    target_date=target,
+                    force=force
+                )
+            else:
+                await _generate_daily_suggestions_for_user(
+                    user_id=user_id,
+                    target_date=target,
+                    include_general=include_general,
+                    force=force
+                )
+        except Exception as e:
+            print(f"⚠️ Weekly suggestion error for {user_id} on {target}: {str(e)}")
+            continue
+
+
 async def check_and_send_friend_emails(user_id: str):
     """Check and send daily summary emails to friends"""
     try:
@@ -1688,7 +2042,9 @@ async def _generate_daily_suggestions_for_user(
             )
 
     backup_data = await supabase_service.get_backup_data(user_id=user_id)
-    context = _build_daily_suggestions_context(backup_data)
+    context = _build_daily_suggestions_context(backup_data, target_date=resolved_date)
+    context_json = json.dumps(context, ensure_ascii=False)
+    context_json = json.dumps(context, ensure_ascii=False)
 
     message = (
         f"Hedef tarih: {resolved_date}.\n"
@@ -1699,7 +2055,7 @@ async def _generate_daily_suggestions_for_user(
     service = get_gemini_service()
     response_text = service.generate_response(
         message=message,
-        context=context,
+        context=context_json,
         system_prompt=DAILY_SUGGESTIONS_SYSTEM_PROMPT
     )
 
@@ -1742,6 +2098,13 @@ async def _generate_daily_suggestions_for_user(
             suggestion for suggestion in suggestions
             if (suggestion.get("type") or "").lower() == "meal"
         ]
+
+    # Normalize, enrich, and dedupe suggestions
+    suggestions = _normalize_and_filter_suggestions(
+        suggestions=suggestions,
+        existing_suggestions=backup_data.get("aiSuggestions", []),
+        target_date=resolved_date
+    )
 
     if not suggestions:
         return DailySuggestionsResponse(
@@ -1796,7 +2159,7 @@ async def _generate_daily_suggestions_phased(
             )
 
     backup_data = await supabase_service.get_backup_data(user_id=user_id)
-    context = _build_daily_suggestions_context(backup_data)
+    context = _build_daily_suggestions_context(backup_data, target_date=resolved_date)
 
     service = get_gemini_service()
     all_suggestions = []
@@ -1808,13 +2171,14 @@ async def _generate_daily_suggestions_phased(
     try:
         meal_response = service.generate_response(
             message=f"Hedef tarih: {resolved_date}. Yemek önerileri üret.",
-            context=context,
+            context=context_json,
             system_prompt=MEAL_SUGGESTIONS_PROMPT.format(
                 todays_meals=context.get("todays_meals", []),
                 todays_events=context.get("todays_events", []),
                 recent_meals=context.get("recent_meals", []),
                 current_datetime=context.get("current_datetime", {}),
-                ai_memories=context.get("ai_memories", [])
+                ai_memories=context.get("ai_memories", []),
+                target_date=resolved_date
             )
         )
         parsed = parse_suggestions_and_memories(meal_response or "")
@@ -1835,11 +2199,12 @@ async def _generate_daily_suggestions_phased(
     try:
         task_response = service.generate_response(
             message=f"Hedef tarih: {resolved_date}. Görev önerileri üret.",
-            context=context,
+            context=context_json,
             system_prompt=TASK_SUGGESTIONS_PROMPT.format(
                 pending_tasks=context.get("pending_tasks", []),
                 current_datetime=context.get("current_datetime", {}),
-                ai_memories=context.get("ai_memories", [])
+                ai_memories=context.get("ai_memories", []),
+                target_date=resolved_date
             )
         )
         parsed = parse_suggestions_and_memories(task_response or "")
@@ -1860,11 +2225,12 @@ async def _generate_daily_suggestions_phased(
     try:
         event_response = service.generate_response(
             message=f"Hedef tarih: {resolved_date}. Etkinlik önerileri üret.",
-            context=context,
+            context=context_json,
             system_prompt=EVENT_SUGGESTIONS_PROMPT.format(
                 todays_events=context.get("todays_events", []),
                 current_datetime=context.get("current_datetime", {}),
-                ai_memories=context.get("ai_memories", [])
+                ai_memories=context.get("ai_memories", []),
+                target_date=resolved_date
             )
         )
         parsed = parse_suggestions_and_memories(event_response or "")
@@ -1880,6 +2246,23 @@ async def _generate_daily_suggestions_phased(
             })
     except Exception as e:
         print(f"⚠️ Event phase error: {str(e)}")
+
+    # Phase 4: Habit suggestions
+    try:
+        habit_response = service.generate_response(
+            message=f"Hedef tarih: {resolved_date}. Alışkanlık önerileri üret.",
+            context=context_json,
+            system_prompt=HABIT_SUGGESTIONS_PROMPT.format(
+                existing_habits=context.get("existing_habits", []),
+                ai_memories=context.get("ai_memories", []),
+                target_date=resolved_date
+            )
+        )
+        parsed = parse_suggestions_and_memories(habit_response or "")
+        all_suggestions.extend(parsed.get("suggestions", []))
+        all_memories.extend(parsed.get("memories", []))
+    except Exception as e:
+        print(f"⚠️ Habit phase error: {str(e)}")
 
     # Save AI memories
     memory_count = 0
@@ -1901,6 +2284,21 @@ async def _generate_daily_suggestions_phased(
             message=f"No suggestions generated. Saved {memory_count} memories."
         )
 
+    # Normalize, enrich, and dedupe suggestions
+    all_suggestions = _normalize_and_filter_suggestions(
+        suggestions=all_suggestions,
+        existing_suggestions=backup_data.get("aiSuggestions", []),
+        target_date=resolved_date
+    )
+
+    if not all_suggestions:
+        return DailySuggestionsResponse(
+            success=False,
+            saved_count=0,
+            skipped=False,
+            message=f"No suggestions left after dedupe. Saved {memory_count} memories."
+        )
+
     saved_count = supabase_service.save_ai_suggestions(
         user_id=user_id,
         suggestions=all_suggestions,
@@ -1912,7 +2310,7 @@ async def _generate_daily_suggestions_phased(
         success=True,
         saved_count=saved_count,
         skipped=False,
-        message=f"Phased: Saved {saved_count} suggestions ({len([s for s in all_suggestions if s.get('type') == 'meal'])} meals, {len([s for s in all_suggestions if s.get('type') == 'task'])} tasks, {len([s for s in all_suggestions if s.get('type') == 'event'])} events, {len([s for s in all_suggestions if s.get('type') == 'edit'])} edits) and {memory_count} memories."
+        message=f"Phased: Saved {saved_count} suggestions ({len([s for s in all_suggestions if s.get('type') == 'meal'])} meals, {len([s for s in all_suggestions if s.get('type') == 'task'])} tasks, {len([s for s in all_suggestions if s.get('type') == 'event'])} events, {len([s for s in all_suggestions if s.get('type') == 'habit'])} habits, {len([s for s in all_suggestions if s.get('type') == 'edit'])} edits) and {memory_count} memories."
     )
 
 
