@@ -1218,7 +1218,11 @@ async def calculate_portfolio(
             stocks=stocks_detail
         )
 
-        await supabase_service.record_portfolio_snapshot(summary)
+        try:
+            await supabase_service.record_portfolio_snapshot(summary)
+        except Exception as snapshot_error:
+            # Snapshot failures shouldn't block portfolio calculation
+            print(f"Supabase snapshot warning: {snapshot_error}")
         return summary
 
     except Exception as e:
