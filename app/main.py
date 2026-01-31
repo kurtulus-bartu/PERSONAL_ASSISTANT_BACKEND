@@ -16,6 +16,7 @@ from models import (
     StockInvestment,
     StockPrice,
     StockDetail,
+    PortfolioCalculationRequest,
     PortfolioSummary,
     GeminiRequest,
     GeminiResponse,
@@ -59,6 +60,145 @@ tefas_crawler = TEFASCrawler()
 supabase_service = SupabaseService(tefas_crawler=tefas_crawler)
 
 
+def _fallback_units(investment_amount: float, purchase_price: float, units: Optional[float]) -> float:
+    if purchase_price > 0:
+        return investment_amount / purchase_price
+    if units and units > 0:
+        return float(units)
+    return 0.0
+
+
+def _fallback_current_price(investment_amount: float, purchase_price: float, units: Optional[float]) -> float:
+    if purchase_price > 0:
+        return purchase_price
+    if units and units > 0:
+        return investment_amount / float(units)
+    return 0.0
+
+
+def _fallback_fund_detail(investment: FundInvestment) -> FundDetail:
+    units = _fallback_units(investment.investment_amount, investment.purchase_price, investment.units)
+    current_price = _fallback_current_price(investment.investment_amount, investment.purchase_price, investment.units)
+    return FundDetail(
+        fund_code=investment.fund_code,
+        fund_name=investment.fund_name or investment.fund_code,
+        investment_amount=round(investment.investment_amount, 2),
+        current_value=round(investment.investment_amount, 2),
+        profit_loss=0.0,
+        profit_loss_percent=0.0,
+        purchase_price=round(investment.purchase_price, 4),
+        current_price=round(current_price, 4),
+        units=round(units, 4)
+    )
+
+
+def _fallback_stock_detail(investment: StockInvestment) -> StockDetail:
+    units = _fallback_units(investment.investment_amount, investment.purchase_price, investment.units)
+    current_price = _fallback_current_price(investment.investment_amount, investment.purchase_price, investment.units)
+    currency = investment.currency or "USD"
+    return StockDetail(
+        symbol=investment.symbol.upper(),
+        stock_name=investment.stock_name or investment.symbol.upper(),
+        investment_amount=round(investment.investment_amount, 2),
+        current_value=round(investment.investment_amount, 2),
+        profit_loss=0.0,
+        profit_loss_percent=0.0,
+        purchase_price=round(investment.purchase_price, 4),
+        current_price=round(current_price, 4),
+        units=round(units, 4),
+        currency=currency
+    )
+
+
+async def _calculate_portfolio_summary(
+    fund_investments: List[FundInvestment],
+    stock_investments: List[StockInvestment]
+) -> PortfolioSummary:
+    total_investment = 0.0
+    total_current_value = 0.0
+    funds_detail: List[FundDetail] = []
+    stocks_detail: List[StockDetail] = []
+
+    # Process fund investments
+    for investment in fund_investments:
+        total_investment += investment.investment_amount
+        result = tefas_crawler.calculate_profit_loss(
+            fund_code=investment.fund_code,
+            purchase_price=investment.purchase_price,
+            purchase_amount=investment.investment_amount
+        )
+
+        if 'error' in result:
+            fallback = _fallback_fund_detail(investment)
+            funds_detail.append(fallback)
+            total_current_value += fallback.current_value
+            continue
+
+        total_current_value += result['current_value']
+
+        funds_detail.append(FundDetail(
+            fund_code=result['fund_code'],
+            fund_name=result['fund_name'],
+            investment_amount=investment.investment_amount,
+            current_value=result['current_value'],
+            profit_loss=result['profit_loss'],
+            profit_loss_percent=result['profit_loss_percent'],
+            purchase_price=investment.purchase_price,
+            current_price=result['current_price'],
+            units=result['units']
+        ))
+
+    # Process stock investments
+    for investment in stock_investments:
+        total_investment += investment.investment_amount
+        result = stock_service.calculate_profit_loss(
+            symbol=investment.symbol,
+            purchase_price=investment.purchase_price,
+            purchase_amount=investment.investment_amount
+        )
+
+        if 'error' in result:
+            fallback = _fallback_stock_detail(investment)
+            stocks_detail.append(fallback)
+            total_current_value += fallback.current_value
+            continue
+
+        total_current_value += result['current_value']
+
+        stocks_detail.append(StockDetail(
+            symbol=result['symbol'],
+            stock_name=result['stock_name'],
+            investment_amount=investment.investment_amount,
+            current_value=result['current_value'],
+            profit_loss=result['profit_loss'],
+            profit_loss_percent=result['profit_loss_percent'],
+            purchase_price=investment.purchase_price,
+            current_price=result['current_price'],
+            units=result['units'],
+            currency=result['currency']
+        ))
+
+    total_profit_loss = total_current_value - total_investment
+    profit_loss_percent = (total_profit_loss / total_investment * 100) if total_investment > 0 else 0
+
+    summary = PortfolioSummary(
+        total_investment=round(total_investment, 2),
+        current_value=round(total_current_value, 2),
+        total_profit_loss=round(total_profit_loss, 2),
+        profit_loss_percent=round(profit_loss_percent, 2),
+        daily_change=0,
+        funds=funds_detail,
+        stocks=stocks_detail
+    )
+
+    try:
+        await supabase_service.record_portfolio_snapshot(summary)
+    except Exception as snapshot_error:
+        print(f"Supabase snapshot warning: {snapshot_error}")
+
+    return summary
+
+
 def get_gemini_service() -> GeminiService:
     """Gemini servisini environment variable'dan döndür"""
     api_key = os.getenv("GEMINI_API_KEY")
@@ -94,7 +234,7 @@ ROL VE AMAÇ:
 
 ÖNERİ TİPLERİ:
 1. **meal** - Öğün önerileri (Kahvaltı, Öğle, Akşam, Atıştırmalık)
-   - Metadata: mealType, date, time, calories, title, menu, notes
+   - Metadata: mealType, date, time, calories (toplam), title, menu (her öğede kalori), notes
 
 2. **task** - Görev önerileri (yapılacaklar, hatırlatmalar)
    - Metadata: title, date, time, durationMinutes, notes, priority
@@ -130,7 +270,8 @@ ROL VE AMAÇ:
 - **meal**:
   * todays_meals listesini kontrol et - zaten yenmiş öğünü TEKRAR ÖNERME
   * target_date bugünse sadece henüz geçmemiş öğünler için öneri ver (örn: saat 14:00 ise kahvaltı önerme)
-  * Menü bilgisini **menu** alanında ver. Menu öğelerini **|** ile ayır (virgül kullanma).
+  * Menü bilgisini **menu** alanında ver. **Her menü öğesinde kalori yaz** (örn: Yumurta 200 kcal). Menu öğelerini **|** ile ayır (virgül kullanma).
+  * calories alanı **toplam** kalori olmalı (sadece sayı).
   * Öğün tipleri: Kahvaltı (07:00-09:00), Öğle (12:00-14:00), Akşam (18:00-20:00), Atıştırmalık
 
 - **task**:
@@ -171,7 +312,7 @@ YENİ HAFIZA EKLEVERİLERİ:
 ÇIKTI KURALLARI:
 - SADECE SUGGESTION ve MEMORY tagları yaz. Başka metin ekleme.
 - Format örnekleri:
-  <SUGGESTION type="meal">ACIKLAMA [metadata:mealType=Akşam,date=2026-01-11,time=19:00,calories=600,title=Izgara tavuk ve sebze,menu=Izgara tavuk|Bulgur pilavı|Mevsim salata,notes=Protein ağırlıklı]</SUGGESTION>
+  <SUGGESTION type="meal">ACIKLAMA [metadata:mealType=Akşam,date=2026-01-11,time=19:00,calories=600,title=Izgara tavuk ve sebze,menu=Izgara tavuk 350 kcal|Bulgur pilavı 150 kcal|Mevsim salata 100 kcal,notes=Protein ağırlıklı]</SUGGESTION>
   <SUGGESTION type="task">ACIKLAMA [metadata:title=Haftalık plan yap,date=2026-01-11,time=20:00,durationMinutes=30,priority=medium]</SUGGESTION>
   <SUGGESTION type="event">ACIKLAMA [metadata:title=30 dakika yürüyüş,date=2026-01-11,time=17:30,durationMinutes=30,location=Park]</SUGGESTION>
   <SUGGESTION type="note">ACIKLAMA [metadata:title=Bugünün öğrendikleri,date=2026-01-11,category=Öğrenme]</SUGGESTION>
@@ -188,6 +329,7 @@ KURALLAR - ÇOK ÖNEMLİ:
 - **TIME EKLE**: Her öneride mutlaka time belirt (meal, task, event için)
 - **BOŞ ZAMAN BUL**: event önerirken todays_events arasındaki boşlukları kullan
 - Metadata değerlerinde virgül kullanma (gerekirse tire veya ve kullan). Menüde **|** kullan.
+- Menu öğelerinde kalori yaz (örn: Tavuk 250 kcal)
 - calories sadece sayı olsun (örn: 450, kcal yazma)
 - date formatı: YYYY-MM-DD
 - time formatı: HH:MM (örn: 09:00, 14:30)
@@ -288,14 +430,14 @@ CURRENT TIME: {current_datetime}
 - Hedef tarih bugün değilse zaman kısıtı uygulama
 
 <SUGGESTION type="meal">
-Açıklama [metadata:mealType=Kahvaltı,date=2026-01-23,time=09:00,calories=450,title=Yumurta ve sebze,menu=Yumurta|Avokado|Tam buğday ekmeği]
+Açıklama [metadata:mealType=Kahvaltı,date=2026-01-23,time=09:00,calories=450,title=Yumurta ve sebze,menu=Yumurta 200 kcal|Avokado 150 kcal|Tam buğday ekmeği 100 kcal]
 </SUGGESTION>
 
 KURALLAR:
 - En fazla 3 yemek öner
 - ZORUNLU DEĞİL - uygun değilse hiç önerme
-- Metadata: mealType, date, time, calories, title, menu, notes
-- Menu öğelerini **|** ile ayır (virgül kullanma)
+- Metadata: mealType, date, time, calories (toplam), title, menu (her öğede kalori), notes
+- Menu öğelerini **|** ile ayır (virgül kullanma). Her öğeye kalori ekle (örn: Tavuk 250 kcal)
 - Öğün tipleri: Kahvaltı (07:00-09:00), Öğle (12:00-14:00), Akşam (18:00-20:00), Atıştırmalık
 """
 
@@ -959,6 +1101,48 @@ def _build_daily_suggestions_context(
     return context
 
 
+def _build_portfolio_investments_from_backup(
+    backup_data: Dict[str, Any]
+) -> (List[FundInvestment], List[StockInvestment]):
+    fund_investments: List[FundInvestment] = []
+    stock_investments: List[StockInvestment] = []
+
+    for item in backup_data.get("fundInvestments", []):
+        try:
+            fund_code = (item.get("fundCode") or "").strip()
+            if not fund_code:
+                continue
+            fund_investments.append(FundInvestment(
+                fund_code=fund_code,
+                fund_name=item.get("fundName"),
+                investment_amount=float(item.get("investmentAmount") or 0),
+                purchase_price=float(item.get("purchasePrice") or 0),
+                purchase_date=item.get("purchaseDate"),
+                units=item.get("units")
+            ))
+        except Exception:
+            continue
+
+    for item in backup_data.get("stockInvestments", []):
+        try:
+            symbol = (item.get("symbol") or "").strip()
+            if not symbol:
+                continue
+            stock_investments.append(StockInvestment(
+                symbol=symbol,
+                stock_name=item.get("stockName"),
+                investment_amount=float(item.get("investmentAmount") or 0),
+                purchase_price=float(item.get("purchasePrice") or 0),
+                purchase_date=item.get("purchaseDate"),
+                units=item.get("units"),
+                currency=item.get("currency") or "USD"
+            ))
+        except Exception:
+            continue
+
+    return fund_investments, stock_investments
+
+
 # Health check
 @app.get("/")
 async def root():
@@ -1128,10 +1312,7 @@ async def search_stocks(query: Optional[str] = ""):
 
 
 @app.post("/api/portfolio/calculate")
-async def calculate_portfolio(
-    fund_investments: List[FundInvestment] = [],
-    stock_investments: List[StockInvestment] = []
-):
+async def calculate_portfolio(request: PortfolioCalculationRequest):
     """
     Combined portfolio profit/loss calculation (funds + stocks)
 
@@ -1143,87 +1324,10 @@ async def calculate_portfolio(
         Combined portfolio summary with funds and stocks
     """
     try:
-        total_investment = 0
-        total_current_value = 0
-        funds_detail = []
-        stocks_detail = []
-
-        # Process fund investments
-        for investment in fund_investments:
-            result = tefas_crawler.calculate_profit_loss(
-                fund_code=investment.fund_code,
-                purchase_price=investment.purchase_price,
-                purchase_amount=investment.investment_amount
-            )
-
-            if 'error' in result:
-                continue
-
-            total_investment += investment.investment_amount
-            total_current_value += result['current_value']
-
-            funds_detail.append(FundDetail(
-                fund_code=result['fund_code'],
-                fund_name=result['fund_name'],
-                investment_amount=investment.investment_amount,
-                current_value=result['current_value'],
-                profit_loss=result['profit_loss'],
-                profit_loss_percent=result['profit_loss_percent'],
-                purchase_price=investment.purchase_price,
-                current_price=result['current_price'],
-                units=result['units']
-            ))
-
-        # Process stock investments
-        for investment in stock_investments:
-            result = stock_service.calculate_profit_loss(
-                symbol=investment.symbol,
-                purchase_price=investment.purchase_price,
-                purchase_amount=investment.investment_amount
-            )
-
-            if 'error' in result:
-                continue
-
-            total_investment += investment.investment_amount
-            total_current_value += result['current_value']
-
-            stocks_detail.append(StockDetail(
-                symbol=result['symbol'],
-                stock_name=result['stock_name'],
-                investment_amount=investment.investment_amount,
-                current_value=result['current_value'],
-                profit_loss=result['profit_loss'],
-                profit_loss_percent=result['profit_loss_percent'],
-                purchase_price=investment.purchase_price,
-                current_price=result['current_price'],
-                units=result['units'],
-                currency=result['currency']
-            ))
-
-        # Calculate totals
-        total_profit_loss = total_current_value - total_investment
-        profit_loss_percent = (total_profit_loss / total_investment * 100) if total_investment > 0 else 0
-
-        # Daily change (simplified)
-        daily_change = 0
-
-        summary = PortfolioSummary(
-            total_investment=round(total_investment, 2),
-            current_value=round(total_current_value, 2),
-            total_profit_loss=round(total_profit_loss, 2),
-            profit_loss_percent=round(profit_loss_percent, 2),
-            daily_change=daily_change,
-            funds=funds_detail,
-            stocks=stocks_detail
+        return await _calculate_portfolio_summary(
+            request.fund_investments,
+            request.stock_investments
         )
-
-        try:
-            await supabase_service.record_portfolio_snapshot(summary)
-        except Exception as snapshot_error:
-            # Snapshot failures shouldn't block portfolio calculation
-            print(f"Supabase snapshot warning: {snapshot_error}")
-        return summary
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -1284,7 +1388,7 @@ async def analyze_portfolio(
     """
     try:
         # Önce portföy hesapla
-        portfolio_result = await calculate_portfolio(investments)
+        portfolio_result = await _calculate_portfolio_summary(investments, [])
 
         # AI analizi yap
         service = get_gemini_service()
@@ -1596,6 +1700,18 @@ async def cron_hourly_check():
 
         for user_id in all_user_ids:
             try:
+                # Portfolio snapshot update (hourly)
+                try:
+                    backup_data = await supabase_service.get_backup_data(user_id=user_id)
+                    fund_investments, stock_investments = _build_portfolio_investments_from_backup(backup_data)
+                    if fund_investments or stock_investments:
+                        await _calculate_portfolio_summary(
+                            fund_investments,
+                            stock_investments
+                        )
+                except Exception as portfolio_error:
+                    print(f"Portfolio snapshot error for user {user_id}: {portfolio_error}")
+
                 # Check if user had AI suggestion in the last hour
                 last_suggestion_time = supabase_service.get_last_ai_suggestion_time(user_id)
 
@@ -2118,18 +2234,32 @@ async def _generate_daily_suggestions_for_user(
             message=f"No suggestions generated. Saved {memory_count} memories."
         )
 
-    saved_count = supabase_service.save_ai_suggestions(
+    meal_suggestions = [s for s in suggestions if (s.get("type") or "").lower() == "meal"]
+    other_suggestions = [s for s in suggestions if (s.get("type") or "").lower() != "meal"]
+
+    meal_saved = supabase_service.save_meal_entries_from_suggestions(
         user_id=user_id,
-        suggestions=suggestions,
-        target_date=resolved_date,
-        source="daily_suggestions"
+        suggestions=meal_suggestions,
+        existing_meals=backup_data.get("mealEntries", []),
+        target_date=resolved_date
     )
 
+    other_saved = 0
+    if other_suggestions:
+        other_saved = supabase_service.save_ai_suggestions(
+            user_id=user_id,
+            suggestions=other_suggestions,
+            target_date=resolved_date,
+            source="daily_suggestions"
+        )
+
+    total_saved = meal_saved + other_saved
+
     return DailySuggestionsResponse(
-        success=True,
-        saved_count=saved_count,
+        success=total_saved > 0,
+        saved_count=total_saved,
         skipped=False,
-        message=f"Saved {saved_count} suggestions and {memory_count} memories."
+        message=f"Saved {total_saved} entries ({meal_saved} meals, {other_saved} suggestions) and {memory_count} memories."
     )
 
 
@@ -2303,18 +2433,40 @@ async def _generate_daily_suggestions_phased(
             message=f"No suggestions left after dedupe. Saved {memory_count} memories."
         )
 
-    saved_count = supabase_service.save_ai_suggestions(
+    meal_suggestions = [s for s in all_suggestions if (s.get("type") or "").lower() == "meal"]
+    other_suggestions = [s for s in all_suggestions if (s.get("type") or "").lower() != "meal"]
+
+    meal_saved = supabase_service.save_meal_entries_from_suggestions(
         user_id=user_id,
-        suggestions=all_suggestions,
-        target_date=resolved_date,
-        source="daily_suggestions_phased"
+        suggestions=meal_suggestions,
+        existing_meals=backup_data.get("mealEntries", []),
+        target_date=resolved_date
     )
 
+    other_saved = 0
+    if other_suggestions:
+        other_saved = supabase_service.save_ai_suggestions(
+            user_id=user_id,
+            suggestions=other_suggestions,
+            target_date=resolved_date,
+            source="daily_suggestions_phased"
+        )
+
+    total_saved = meal_saved + other_saved
+
     return DailySuggestionsResponse(
-        success=True,
-        saved_count=saved_count,
+        success=total_saved > 0,
+        saved_count=total_saved,
         skipped=False,
-        message=f"Phased: Saved {saved_count} suggestions ({len([s for s in all_suggestions if s.get('type') == 'meal'])} meals, {len([s for s in all_suggestions if s.get('type') == 'task'])} tasks, {len([s for s in all_suggestions if s.get('type') == 'event'])} events, {len([s for s in all_suggestions if s.get('type') == 'habit'])} habits, {len([s for s in all_suggestions if s.get('type') == 'edit'])} edits) and {memory_count} memories."
+        message=(
+            "Phased: Saved {total} entries ({meals} meals, {others} suggestions) "
+            "and {memories} memories."
+        ).format(
+            total=total_saved,
+            meals=meal_saved,
+            others=other_saved,
+            memories=memory_count
+        )
     )
 
 

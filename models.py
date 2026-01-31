@@ -76,6 +76,12 @@ class StockDetail(BaseModel):
     currency: str
 
 
+class PortfolioCalculationRequest(BaseModel):
+    """Portföy hesaplama isteği (funds + stocks)"""
+    fund_investments: List[FundInvestment] = Field(default_factory=list)
+    stock_investments: List[StockInvestment] = Field(default_factory=list)
+
+
 class PortfolioSummary(BaseModel):
     """Portföy özeti (Combined: funds + stocks)"""
     total_investment: float = Field(..., description="Toplam yatırım")

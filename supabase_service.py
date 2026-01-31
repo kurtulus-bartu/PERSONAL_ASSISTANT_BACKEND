@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from uuid import NAMESPACE_URL, uuid4, uuid5
@@ -595,6 +596,81 @@ class SupabaseService:
             self.client.table("ai_suggestions").upsert(rows, on_conflict="id").execute()
 
         return len(rows)
+
+    def save_meal_entries_from_suggestions(
+        self,
+        user_id: str,
+        suggestions: List[Dict[str, Any]],
+        existing_meals: Optional[List[Dict[str, Any]]] = None,
+        target_date: Optional[str] = None
+    ) -> int:
+        """Meal-type AI suggestions -> meal_entries kayıtları."""
+        if not self.client:
+            raise Exception("Supabase client not initialized")
+
+        existing_keys = set()
+        for meal in (existing_meals or []):
+            date_value = str(meal.get("date", ""))[:10]
+            meal_type = str(meal.get("mealType", "")).strip().lower()
+            if date_value and meal_type:
+                existing_keys.add((date_value, meal_type))
+
+        def parse_total_calories(menu_items: List[str]) -> float:
+            total = 0
+            for item in menu_items:
+                match = re.search(r"(\\d{2,4})\\s*kcal", item.lower())
+                if match:
+                    total += int(match.group(1))
+            return float(total)
+
+        meal_entries: List[Dict[str, Any]] = []
+
+        for suggestion in suggestions:
+            suggestion_type = (suggestion.get("type") or "").strip().lower()
+            if suggestion_type != "meal":
+                continue
+
+            metadata = suggestion.get("metadata") or {}
+            meal_type = (metadata.get("mealType") or metadata.get("meal_type") or "").strip()
+            date_value = (metadata.get("date") or target_date or "").strip()
+            if not meal_type or not date_value:
+                continue
+
+            date_key = date_value[:10]
+            key = (date_key, meal_type.lower())
+            if key in existing_keys:
+                continue
+
+            raw_menu = metadata.get("menu") or metadata.get("menuItems") or ""
+            if raw_menu:
+                menu_items = [item.strip() for item in raw_menu.split("|") if item.strip()]
+            else:
+                menu_items = [suggestion.get("description", "").strip()]
+
+            description = " • ".join([item for item in menu_items if item])
+
+            calories_value = 0.0
+            if metadata.get("calories"):
+                digits = re.sub(r"[^0-9.]", "", str(metadata.get("calories")))
+                if digits:
+                    calories_value = float(digits)
+            if calories_value <= 0 and menu_items:
+                calories_value = parse_total_calories(menu_items)
+
+            meal_entries.append({
+                "id": str(uuid4()),
+                "date": date_key,
+                "mealType": meal_type,
+                "description": description,
+                "calories": calories_value,
+                "notes": metadata.get("notes", "")
+            })
+            existing_keys.add(key)
+
+        if meal_entries:
+            self._save_meal_entries(user_id, meal_entries)
+
+        return len(meal_entries)
 
     def get_last_ai_suggestion_time(self, user_id: str) -> Optional[datetime]:
         """Kullanıcının en son AI önerisi zamanını döndürür"""
