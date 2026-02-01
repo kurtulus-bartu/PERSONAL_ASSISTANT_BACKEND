@@ -641,6 +641,8 @@ class SupabaseService:
                 metadata.setdefault("date", target_date)
                 metadata.setdefault("forDate", target_date)
             metadata.setdefault("source", source)
+            if description and not metadata.get("content"):
+                metadata["content"] = description
 
             base_date = metadata.get("forDate") or metadata.get("date") or target_date
             seed_parts = [
@@ -668,7 +670,6 @@ class SupabaseService:
                 "id": suggestion_id,
                 "user_id": user_id,
                 "type": suggestion_type,
-                "description": description,
                 "status": "pending",
                 "metadata": metadata,
                 "timestamp": timestamp
@@ -1306,17 +1307,18 @@ class SupabaseService:
             .order("timestamp", desc=True) \
             .limit(300) \
             .execute()
-        backup_data["aiSuggestions"] = [
-            {
+        backup_data["aiSuggestions"] = []
+        for row in (ai_suggestions_response.data or []):
+            metadata = row.get("metadata") or {}
+            description = row.get("description") or metadata.get("content") or metadata.get("title") or metadata.get("name") or metadata.get("menu") or metadata.get("menuItems") or ""
+            backup_data["aiSuggestions"].append({
                 "id": row["id"],
                 "type": row.get("type", ""),
-                "description": row.get("description", ""),
+                "description": description,
                 "status": row.get("status", ""),
-                "metadata": row.get("metadata") or {},
+                "metadata": metadata,
                 "timestamp": row.get("timestamp")
-            }
-            for row in (ai_suggestions_response.data or [])
-        ]
+            })
 
         # Habits
         habits_response = self.client.table("habits") \

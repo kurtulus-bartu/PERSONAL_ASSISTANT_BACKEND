@@ -778,6 +778,8 @@ def _normalize_suggestion(
         metadata["title"] = description[:60]
     if suggestion_type == "habit" and "name" not in metadata:
         metadata["name"] = description[:60]
+    if description and "content" not in metadata:
+        metadata["content"] = description
 
     return {
         "type": suggestion_type,
@@ -797,7 +799,7 @@ def _suggestion_key(suggestion: Dict[str, Any], default_date: Optional[str]) -> 
     time_value = metadata.get("time") or metadata.get("startTime") or ""
     title_value = metadata.get("title") or metadata.get("name") or metadata.get("mealType") or ""
     menu_value = metadata.get("menu") or metadata.get("menuItems") or ""
-    description = suggestion.get("description", "")
+    description = suggestion.get("description") or metadata.get("content") or metadata.get("title") or metadata.get("name") or ""
     key_text = f"{title_value}|{menu_value}|{description}"
     return f"{suggestion_type}|{date_value}|{time_value}|{_normalize_text(key_text)}"
 
@@ -1023,11 +1025,23 @@ def _build_daily_suggestions_context(
         for m in ai_memories
     ]
 
+    def _suggestion_text(s: Dict[str, Any]) -> str:
+        metadata = s.get("metadata") or {}
+        return (
+            s.get("description")
+            or metadata.get("content")
+            or metadata.get("title")
+            or metadata.get("name")
+            or metadata.get("menu")
+            or metadata.get("menuItems")
+            or ""
+        )
+
     # Recent accepted suggestions (last 10)
     accepted_suggestions = [
         {
             "type": s.get("type", ""),
-            "description": (s.get("description", "") or "")[:120],
+            "description": _suggestion_text(s)[:120],
             "status": s.get("status", ""),
             "metadata": s.get("metadata", {})
         }
@@ -1039,7 +1053,7 @@ def _build_daily_suggestions_context(
     pending_suggestions = [
         {
             "type": s.get("type", ""),
-            "description": (s.get("description", "") or "")[:120],
+            "description": _suggestion_text(s)[:120],
             "metadata": s.get("metadata", {})
         }
         for s in ai_suggestions
