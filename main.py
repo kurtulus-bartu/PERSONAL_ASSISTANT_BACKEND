@@ -2172,7 +2172,6 @@ async def _generate_daily_suggestions_for_user(
     backup_data = await supabase_service.get_backup_data(user_id=user_id)
     context = _build_daily_suggestions_context(backup_data, target_date=resolved_date)
     context_json = json.dumps(context, ensure_ascii=False)
-    context_json = json.dumps(context, ensure_ascii=False)
 
     message = (
         f"Hedef tarih: {resolved_date}.\n"
@@ -2302,6 +2301,7 @@ async def _generate_daily_suggestions_phased(
 
     backup_data = await supabase_service.get_backup_data(user_id=user_id)
     context = _build_daily_suggestions_context(backup_data, target_date=resolved_date)
+    context_json = json.dumps(context, ensure_ascii=False)
 
     service = get_gemini_service()
     all_suggestions = []
