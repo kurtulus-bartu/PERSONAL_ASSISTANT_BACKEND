@@ -112,7 +112,8 @@ def _fallback_stock_detail(investment: StockInvestment) -> StockDetail:
 
 async def _calculate_portfolio_summary(
     fund_investments: List[FundInvestment],
-    stock_investments: List[StockInvestment]
+    stock_investments: List[StockInvestment],
+    user_id: Optional[str] = None
 ) -> PortfolioSummary:
     total_investment = 0.0
     total_current_value = 0.0
@@ -191,10 +192,16 @@ async def _calculate_portfolio_summary(
         stocks=stocks_detail
     )
 
-    try:
-        await supabase_service.record_portfolio_snapshot(summary)
-    except Exception as snapshot_error:
-        print(f"Supabase snapshot warning: {snapshot_error}")
+    if user_id:
+        try:
+            await supabase_service.record_portfolio_snapshot(user_id, summary)
+        except Exception as snapshot_error:
+            print(f"Supabase snapshot warning for user {user_id}: {snapshot_error}")
+
+        try:
+            await supabase_service.upsert_finance_metric_from_summary(user_id, summary)
+        except Exception as metric_error:
+            print(f"Finance metric update warning for user {user_id}: {metric_error}")
 
     return summary
 
@@ -1707,7 +1714,8 @@ async def cron_hourly_check():
                     if fund_investments or stock_investments:
                         await _calculate_portfolio_summary(
                             fund_investments,
-                            stock_investments
+                            stock_investments,
+                            user_id=user_id
                         )
                 except Exception as portfolio_error:
                     print(f"Portfolio snapshot error for user {user_id}: {portfolio_error}")

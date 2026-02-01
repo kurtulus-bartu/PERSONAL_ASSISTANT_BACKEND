@@ -3,8 +3,9 @@ Stock Service for fetching stock prices from Yahoo Finance using yfinance
 """
 
 import yfinance as yf
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional
+from urllib.parse import quote
 import time
 
 
@@ -53,9 +54,11 @@ class StockService:
             }
             or None if symbol not found
         """
+        symbol_upper = symbol.upper()
+
         # Check cache for current prices only (not historical)
         if not date:
-            cache_key = symbol.upper()
+            cache_key = symbol_upper
             cached_data = self._get_from_cache(cache_key)
             if cached_data:
                 print(f"Cache hit for {cache_key}")
@@ -66,7 +69,7 @@ class StockService:
         for attempt in range(max_retries):
             try:
                 # Use session to avoid rate limiting
-                ticker = yf.Ticker(symbol.upper(), session=self._session)
+                ticker = yf.Ticker(symbol_upper, session=self._session)
 
                 if date:
                     # Historical price for specific date
@@ -86,8 +89,8 @@ class StockService:
                         fast_info = ticker.fast_info
                         if hasattr(fast_info, 'last_price') and fast_info.last_price:
                             result = {
-                                'symbol': symbol.upper(),
-                                'stock_name': symbol.upper(),
+                                'symbol': symbol_upper,
+                                'stock_name': symbol_upper,
                                 'price': float(fast_info.last_price),
                                 'currency': fast_info.currency if hasattr(fast_info, 'currency') else ('TRY' if '.IS' in symbol.upper() else 'USD'),
                                 'date': datetime.now().strftime("%Y-%m-%d"),
@@ -99,6 +102,12 @@ class StockService:
                             return result
                     except Exception as fast_e:
                         print(f"Fast info also failed: {str(fast_e)}")
+
+                    chart_result = self._fetch_chart_price(symbol_upper, date)
+                    if chart_result:
+                        if not date:
+                            self._save_to_cache(cache_key, chart_result)
+                        return chart_result
 
                     print(f"❌ Stock price not found for symbol: {symbol}")
                     return None
@@ -113,12 +122,12 @@ class StockService:
                     info = {}
 
                 # Fallback stock name if info is empty
-                stock_name = symbol.upper()
+                stock_name = symbol_upper
                 if info:
-                    stock_name = info.get('longName') or info.get('shortName') or symbol.upper()
+                    stock_name = info.get('longName') or info.get('shortName') or symbol_upper
 
                 result = {
-                    'symbol': symbol.upper(),
+                    'symbol': symbol_upper,
                     'stock_name': stock_name,
                     'price': float(last_row['Close']),
                     'currency': info.get('currency', 'TRY' if '.IS' in symbol.upper() else 'USD'),
@@ -143,10 +152,83 @@ class StockService:
                     print(f"Waiting {wait_time}s before retry...")
                     time.sleep(wait_time)
                 else:
+                    chart_result = self._fetch_chart_price(symbol_upper, date)
+                    if chart_result:
+                        if not date:
+                            self._save_to_cache(cache_key, chart_result)
+                        return chart_result
                     print(f"❌ All retries exhausted for {symbol}. Error: {str(e)}")
                     return None
 
         return None
+
+    def _fetch_chart_price(self, symbol: str, date: Optional[str] = None) -> Optional[Dict]:
+        """Fallback to Yahoo chart API when yfinance fails."""
+        try:
+            encoded_symbol = quote(symbol.upper())
+            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{encoded_symbol}"
+            params: Dict[str, object] = {"interval": "1d", "range": "7d"}
+
+            if date:
+                start = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                end = start + timedelta(days=1)
+                params = {
+                    "interval": "1d",
+                    "period1": int(start.timestamp()),
+                    "period2": int(end.timestamp())
+                }
+
+            response = self._session.get(url, params=params, timeout=10)
+            response.raise_for_status()
+            payload = response.json()
+
+            result = (payload.get("chart") or {}).get("result") or []
+            if not result:
+                return None
+
+            chart = result[0]
+            meta = chart.get("meta") or {}
+            timestamps = chart.get("timestamp") or []
+            quotes = (chart.get("indicators") or {}).get("quote") or []
+            closes = (quotes[0] if quotes else {}).get("close") or []
+
+            price = None
+            price_ts = None
+            for ts, close in reversed(list(zip(timestamps, closes))):
+                if close is None:
+                    continue
+                price = float(close)
+                price_ts = ts
+                break
+
+            if price is None and meta.get("regularMarketPrice") is not None:
+                price = float(meta.get("regularMarketPrice"))
+                price_ts = meta.get("regularMarketTime")
+
+            if price is None:
+                return None
+
+            if price_ts:
+                price_date = datetime.fromtimestamp(price_ts, tz=timezone.utc).strftime("%Y-%m-%d")
+            else:
+                price_date = datetime.now().strftime("%Y-%m-%d")
+
+            stock_name = meta.get("longName") or meta.get("shortName") or symbol.upper()
+            currency = meta.get("currency") or ('TRY' if '.IS' in symbol.upper() else 'USD')
+
+            result_data = {
+                "symbol": symbol.upper(),
+                "stock_name": stock_name,
+                "price": price,
+                "currency": currency,
+                "date": price_date,
+                "market": self._extract_market(symbol)
+            }
+            print(f"✅ Stock price fetched via chart API: {symbol} = {price} {currency}")
+            return result_data
+        except Exception as e:
+            print(f"Chart API fallback failed for {symbol}: {str(e)}")
+            return None
 
     def _get_from_cache(self, key: str) -> Optional[Dict]:
         """Get cached data if not expired"""

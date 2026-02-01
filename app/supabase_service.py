@@ -38,12 +38,23 @@ class SupabaseService:
     # Public API
     # -------------------------------------------------------------------------
 
-    async def record_portfolio_snapshot(self, summary: PortfolioSummary) -> None:
+    async def record_portfolio_snapshot(self, user_id: str, summary: PortfolioSummary) -> None:
         """Portföy özetini günlük tabloya yazar."""
         if not self.client:
             return
 
-        await asyncio.to_thread(self._record_snapshot_sync, summary)
+        await asyncio.to_thread(self._record_snapshot_sync, user_id, summary)
+
+    async def upsert_finance_metric_from_summary(
+        self,
+        user_id: str,
+        summary: PortfolioSummary
+    ) -> None:
+        """Günlük finans metriklerini portföy özetinden günceller."""
+        if not self.client:
+            return
+
+        await asyncio.to_thread(self._upsert_finance_metric_from_summary_sync, user_id, summary)
 
     async def get_portfolio_history(
         self,
@@ -131,13 +142,14 @@ class SupabaseService:
     # Snapshot Storage
     # -------------------------------------------------------------------------
 
-    def _record_snapshot_sync(self, summary: PortfolioSummary) -> None:
+    def _record_snapshot_sync(self, user_id: str, summary: PortfolioSummary) -> None:
         recorded_at = datetime.now(timezone.utc)
         snapshot_date = recorded_at.date().isoformat()
 
         # Fund rows
         fund_rows = [
             self._serialize_fund_row(
+                user_id,
                 fund,
                 recorded_at,
                 snapshot_date
@@ -147,6 +159,7 @@ class SupabaseService:
 
         # Total portfolio row (in fund_daily_values)
         fund_rows.append({
+            "user_id": user_id,
             "snapshot_date": snapshot_date,
             "recorded_at": recorded_at.isoformat(),
             "fund_code": TOTAL_FUND_CODE,
@@ -161,6 +174,7 @@ class SupabaseService:
         # Stock rows
         stock_rows = [
             self._serialize_stock_row(
+                user_id,
                 stock,
                 recorded_at,
                 snapshot_date
@@ -172,13 +186,38 @@ class SupabaseService:
         self._upsert_rows(fund_rows)
         self._upsert_stock_rows(stock_rows)
 
+    def _upsert_finance_metric_from_summary_sync(
+        self,
+        user_id: str,
+        summary: PortfolioSummary
+    ) -> None:
+        metric_date = datetime.now(timezone.utc).date().isoformat()
+        metric_id = str(uuid5(NAMESPACE_URL, f"{user_id}:finance_metrics:{metric_date}"))
+
+        row = {
+            "id": metric_id,
+            "user_id": user_id,
+            "date": metric_date,
+            "total_investment": summary.total_investment,
+            "current_value": summary.current_value,
+            "profit_loss": summary.total_profit_loss,
+            "profit_loss_percent": summary.profit_loss_percent
+        }
+
+        self.client.table("finance_metrics") \
+            .upsert(row, on_conflict="user_id,date") \
+            .execute()
+        self._remove_duplicates("finance_metrics", ["date"], user_id)
+
     def _serialize_fund_row(
         self,
+        user_id: str,
         fund: FundDetail,
         recorded_at: datetime,
         snapshot_date: str
     ) -> Dict:
         return {
+            "user_id": user_id,
             "snapshot_date": snapshot_date,
             "recorded_at": recorded_at.isoformat(),
             "fund_code": fund.fund_code,
@@ -193,11 +232,13 @@ class SupabaseService:
 
     def _serialize_stock_row(
         self,
+        user_id: str,
         stock: "StockDetail",
         recorded_at: datetime,
         snapshot_date: str
     ) -> Dict:
         return {
+            "user_id": user_id,
             "snapshot_date": snapshot_date,
             "recorded_at": recorded_at.isoformat(),
             "symbol": stock.symbol,
@@ -216,7 +257,7 @@ class SupabaseService:
             return
 
         self.client.table("fund_daily_values") \
-            .upsert(rows, on_conflict="fund_code,snapshot_date") \
+            .upsert(rows, on_conflict="user_id,fund_code,snapshot_date") \
             .execute()
 
     def _upsert_stock_rows(self, rows: List[Dict]) -> None:
@@ -224,7 +265,7 @@ class SupabaseService:
             return
 
         self.client.table("stock_daily_values") \
-            .upsert(rows, on_conflict="symbol,snapshot_date") \
+            .upsert(rows, on_conflict="user_id,symbol,snapshot_date") \
             .execute()
 
     # -------------------------------------------------------------------------
@@ -525,6 +566,14 @@ class SupabaseService:
         # Workout Entries
         if "workoutEntries" in data:
             self._save_workout_entries(user_id, data["workoutEntries"])
+
+        # Habits
+        if "habits" in data:
+            self._save_habits(user_id, data["habits"])
+
+        # Habit Logs
+        if "habitLogs" in data:
+            self._save_habit_logs(user_id, data["habitLogs"])
 
     def has_ai_suggestions_for_date(
         self,
@@ -993,6 +1042,97 @@ class SupabaseService:
                             if set_rows:
                                 self.client.table("exercise_set_details").insert(set_rows).execute()
 
+    @staticmethod
+    def _normalize_date_value(value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value.date().isoformat()
+        if isinstance(value, date):
+            return value.isoformat()
+        value_str = str(value)
+        return value_str[:10] if value_str else None
+
+    @staticmethod
+    def _normalize_time_value(value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value.time().strftime("%H:%M:%S")
+        value_str = str(value).strip()
+        if not value_str:
+            return None
+        if "T" in value_str:
+            try:
+                cleaned = value_str.replace("Z", "+00:00")
+                parsed = datetime.fromisoformat(cleaned)
+                return parsed.time().strftime("%H:%M:%S")
+            except Exception:
+                return value_str
+        return value_str
+
+    def _save_habits(self, user_id: str, habits: List[Dict]) -> None:
+        """Alışkanlıkları kaydet"""
+        rows = []
+        for habit in habits:
+            habit_id = habit.get("id")
+            if not habit_id:
+                continue
+
+            habit_type = habit.get("type") or habit.get("habitType") or "yes_no"
+            frequency = habit.get("frequency") or "daily"
+
+            rows.append({
+                "id": habit_id,
+                "user_id": user_id,
+                "name": habit.get("name", ""),
+                "icon": habit.get("icon", "circle.fill"),
+                "color": habit.get("color", "#007AFF"),
+                "type": habit_type,
+                "frequency": frequency,
+                "weekdays": habit.get("weekdays"),
+                "custom_interval": habit.get("customInterval") or habit.get("custom_interval"),
+                "target_value": habit.get("targetValue") or habit.get("target_value"),
+                "target_unit": habit.get("targetUnit") or habit.get("target_unit"),
+                "checklist_items": habit.get("checklistItems") or habit.get("checklist_items"),
+                "reminder_enabled": habit.get("reminderEnabled") if habit.get("reminderEnabled") is not None else habit.get("reminder_enabled", False),
+                "reminder_time": self._normalize_time_value(habit.get("reminderTime") or habit.get("reminder_time")),
+                "notes": habit.get("notes", ""),
+                "category": habit.get("category", ""),
+                "created_at": habit.get("createdAt") or habit.get("created_at")
+            })
+
+        if rows:
+            self.client.table("habits").upsert(rows, on_conflict="id").execute()
+
+    def _save_habit_logs(self, user_id: str, logs: List[Dict]) -> None:
+        """Alışkanlık loglarını kaydet"""
+        rows = []
+        for log in logs:
+            log_id = log.get("id")
+            habit_id = log.get("habitId") or log.get("habit_id")
+            if not log_id or not habit_id:
+                continue
+
+            date_value = self._normalize_date_value(log.get("date"))
+            if not date_value:
+                continue
+
+            rows.append({
+                "id": log_id,
+                "user_id": user_id,
+                "habit_id": habit_id,
+                "date": date_value,
+                "completed": log.get("completed", False),
+                "value": log.get("value"),
+                "checklist_progress": log.get("checklistProgress") or log.get("checklist_progress"),
+                "notes": log.get("notes", ""),
+                "timestamp": log.get("timestamp")
+            })
+
+        if rows:
+            self.client.table("habit_logs").upsert(rows, on_conflict="id").execute()
+
     async def get_backup_data(self, user_id: str) -> Dict:
         """Supabase'den kullanıcının tüm verisini çeker"""
         if not self.client:
@@ -1090,12 +1230,18 @@ class SupabaseService:
                 "task": row.get("task", ""),
                 "assignedFriendIDs": row.get("assigned_friend_ids") or [],
                 "parentID": row.get("parent_id"),
-                "recurrence": {
-                    "frequency": row.get("recurrence_frequency", "none"),
-                    "interval": row.get("recurrence_interval", 1),
-                    "weekdays": row.get("recurrence_weekdays") or [],
-                    "until": row.get("recurrence_until")
-                } if row.get("recurrence_frequency") else None
+                "recurrence": (
+                    row.get("recurrence")
+                    if row.get("recurrence") is not None
+                    else (
+                        {
+                            "frequency": row.get("recurrence_frequency", "none"),
+                            "interval": row.get("recurrence_interval", 1),
+                            "weekdays": row.get("recurrence_weekdays") or [],
+                            "until": row.get("recurrence_until")
+                        } if row.get("recurrence_frequency") else None
+                    )
+                )
             }
             for row in (tasks_response.data or [])
         ]
