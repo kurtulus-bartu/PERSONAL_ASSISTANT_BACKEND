@@ -612,6 +612,17 @@ class SupabaseService:
         seen_ids = set()
         timestamp = datetime.now(timezone.utc).isoformat()
 
+        def normalize_placeholder(text: str) -> str:
+            translation = str.maketrans({
+                "ı": "i", "İ": "i",
+                "ş": "s", "Ş": "s",
+                "ğ": "g", "Ğ": "g",
+                "ü": "u", "Ü": "u",
+                "ö": "o", "Ö": "o",
+                "ç": "c", "Ç": "c"
+            })
+            return text.translate(translation).strip().lower()
+
         for suggestion in suggestions:
             suggestion_type = (suggestion.get("type") or "note").strip()
             description = (suggestion.get("description") or "").strip()
@@ -619,6 +630,13 @@ class SupabaseService:
                 continue
 
             metadata = suggestion.get("metadata") or {}
+            normalized = normalize_placeholder(description)
+            if normalized in {"aciklama", "description", "desc"}:
+                fallback = metadata.get("title") or metadata.get("name") or metadata.get("menu") or metadata.get("menuItems") or metadata.get("mealType")
+                if fallback:
+                    description = str(fallback).strip()
+                    if not description:
+                        continue
             if target_date:
                 metadata.setdefault("date", target_date)
                 metadata.setdefault("forDate", target_date)

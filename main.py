@@ -1702,8 +1702,9 @@ async def cron_hourly_check():
         skipped_count = 0
         errors = []
         # Generate suggestions for the upcoming week (starting today)
-        start_date = datetime.now().date().isoformat()
         now = datetime.now(timezone.utc)
+        start_date = now.date().isoformat()
+        run_window = now.minute <= 5
 
         for user_id in all_user_ids:
             try:
@@ -1720,32 +1721,37 @@ async def cron_hourly_check():
                 except Exception as portfolio_error:
                     print(f"Portfolio snapshot error for user {user_id}: {portfolio_error}")
 
-                # Check if user had AI suggestion in the last hour
-                last_suggestion_time = supabase_service.get_last_ai_suggestion_time(user_id)
+                if run_window:
+                    # Check if user had AI suggestion in the last hour
+                    last_suggestion_time = supabase_service.get_last_ai_suggestion_time(user_id)
+                    should_generate = True
 
-                if last_suggestion_time:
-                    time_since_last = now - last_suggestion_time
-                    # Skip if less than 1 hour has passed
-                    if time_since_last.total_seconds() < 3600:  # 3600 seconds = 1 hour
-                        skipped_count += 1
-                        continue
+                    if last_suggestion_time:
+                        time_since_last = now - last_suggestion_time
+                        # Skip if less than 1 hour has passed
+                        if time_since_last.total_seconds() < 3600:  # 3600 seconds = 1 hour
+                            skipped_count += 1
+                            should_generate = False
 
-                # Generate AI suggestions for the full week
-                await generate_weekly_suggestions_for_user(
-                    user_id=user_id,
-                    start_date=start_date,
-                    days=7,
-                    include_general=True,  # Include all types: meals, tasks, events, notes, habits
-                    force=False  # Skip if suggestions already exist for a date
-                )
+                    if should_generate:
+                        # Generate AI suggestions for the full week
+                        await generate_weekly_suggestions_for_user(
+                            user_id=user_id,
+                            start_date=start_date,
+                            days=7,
+                            include_general=True,  # Include all types: meals, tasks, events, notes, habits
+                            force=False  # Skip if suggestions already exist for a date
+                        )
 
-                processed_count += 1
+                        processed_count += 1
 
-                # Send daily summary emails (hourly cron, only if not sent today)
-                try:
-                    await check_and_send_daily_emails(user_id)
-                except Exception as email_error:
-                    print(f"Email error for user {user_id}: {str(email_error)}")
+                    # Send daily summary emails (hourly cron, only if not sent today)
+                    try:
+                        await check_and_send_daily_emails(user_id)
+                    except Exception as email_error:
+                        print(f"Email error for user {user_id}: {str(email_error)}")
+                else:
+                    skipped_count += 1
 
             except Exception as e:
                 errors.append({
@@ -1759,6 +1765,7 @@ async def cron_hourly_check():
             "skipped_users": skipped_count,
             "total_users": len(all_user_ids),
             "start_date": start_date,
+            "run_window": run_window,
             "errors": errors
         }
 
