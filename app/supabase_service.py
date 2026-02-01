@@ -1094,26 +1094,15 @@ class SupabaseService:
             if not habit_id:
                 continue
 
-            habit_type = habit.get("type") or habit.get("habitType") or "yes_no"
             frequency = habit.get("frequency") or "daily"
 
             rows.append({
                 "id": habit_id,
                 "user_id": user_id,
                 "name": habit.get("name", ""),
-                "icon": habit.get("icon", "circle.fill"),
-                "color": habit.get("color", "#007AFF"),
-                "type": habit_type,
                 "frequency": frequency,
                 "weekdays": habit.get("weekdays"),
                 "custom_interval": habit.get("customInterval") or habit.get("custom_interval"),
-                "target_value": habit.get("targetValue") or habit.get("target_value"),
-                "target_unit": habit.get("targetUnit") or habit.get("target_unit"),
-                "checklist_items": habit.get("checklistItems") or habit.get("checklist_items"),
-                "reminder_enabled": habit.get("reminderEnabled") if habit.get("reminderEnabled") is not None else habit.get("reminder_enabled", False),
-                "reminder_time": self._normalize_time_value(habit.get("reminderTime") or habit.get("reminder_time")),
-                "notes": habit.get("notes", ""),
-                "category": habit.get("category", ""),
                 "created_at": habit.get("createdAt") or habit.get("created_at")
             })
 
@@ -1139,9 +1128,6 @@ class SupabaseService:
                 "habit_id": habit_id,
                 "date": date_value,
                 "completed": log.get("completed", False),
-                "value": log.get("value"),
-                "checklist_progress": log.get("checklistProgress") or log.get("checklist_progress"),
-                "notes": log.get("notes", ""),
                 "timestamp": log.get("timestamp")
             })
 
@@ -1323,19 +1309,10 @@ class SupabaseService:
             {
                 "id": row["id"],
                 "name": row.get("name", ""),
-                "icon": row.get("icon", "circle.fill"),
-                "color": row.get("color", "#007AFF"),
-                "type": row.get("type", ""),
                 "frequency": row.get("frequency", ""),
                 "weekdays": row.get("weekdays", []) or [],
                 "customInterval": row.get("custom_interval"),
-                "targetValue": row.get("target_value"),
-                "targetUnit": row.get("target_unit"),
-                "checklistItems": row.get("checklist_items"),
-                "reminderEnabled": row.get("reminder_enabled", False),
-                "reminderTime": row.get("reminder_time"),
-                "notes": row.get("notes", ""),
-                "category": row.get("category", "")
+                "createdAt": row.get("created_at")
             }
             for row in (habits_response.data or [])
         ]
@@ -1353,9 +1330,6 @@ class SupabaseService:
                 "habitId": row.get("habit_id"),
                 "date": row.get("date"),
                 "completed": row.get("completed", False),
-                "value": row.get("value"),
-                "checklistProgress": row.get("checklist_progress"),
-                "notes": row.get("notes", ""),
                 "timestamp": row.get("timestamp")
             }
             for row in (habit_logs_response.data or [])
@@ -1602,7 +1576,11 @@ class SupabaseService:
             return None
 
         try:
-            response = self.client.table("user_settings").select("*").eq("user_id", user_id).eq("key", "email_settings").execute()
+            response = self.client.table("user_settings") \
+                .select("value") \
+                .eq("user_id", user_id) \
+                .eq("key", "email_settings") \
+                .execute()
             if response.data:
                 return response.data[0].get("value", {})
             return None
@@ -1610,103 +1588,111 @@ class SupabaseService:
             print(f"Error getting user email settings: {str(e)}")
             return None
 
-    def was_friend_email_sent_today(self, user_id: str) -> bool:
-        """Check if friend email was sent today"""
+    def get_user_friends(self, user_id: str) -> List[Dict[str, Any]]:
+        """Get user's friends list"""
+        if not self.client:
+            return []
+
+        try:
+            response = self.client.table("friends") \
+                .select("id,name,email") \
+                .eq("user_id", user_id) \
+                .execute()
+            return response.data or []
+        except Exception as e:
+            print(f"Error getting user friends: {str(e)}")
+            return []
+
+    def was_daily_summary_sent_today(self, user_id: str) -> bool:
+        """Check if daily summary email was sent today"""
         if not self.client:
             return False
 
         try:
-            today = datetime.now().strftime("%Y-%m-%d")
-            response = self.client.table("email_log").select("*").eq("user_id", user_id).eq("email_type", "friend_summary").eq("sent_date", today).execute()
-            return len(response.data) > 0
+            today = datetime.now(timezone.utc).date()
+            response = self.client.table("daily_summary_email_state") \
+                .select("last_sent_at") \
+                .eq("user_id", user_id) \
+                .limit(1) \
+                .execute()
+            if not response.data:
+                return False
+            last_sent = response.data[0].get("last_sent_at")
+            if not last_sent:
+                return False
+            last_sent_dt = datetime.fromisoformat(last_sent.replace("Z", "+00:00"))
+            return last_sent_dt.date() == today
         except Exception as e:
-            print(f"Error checking friend email status: {str(e)}")
+            print(f"Error checking daily summary status: {str(e)}")
             return False
 
-    def was_personal_email_sent_today(self, user_id: str) -> bool:
-        """Check if personal email was sent today"""
-        if not self.client:
-            return False
-
-        try:
-            today = datetime.now().strftime("%Y-%m-%d")
-            response = self.client.table("email_log").select("*").eq("user_id", user_id).eq("email_type", "personal_summary").eq("sent_date", today).execute()
-            return len(response.data) > 0
-        except Exception as e:
-            print(f"Error checking personal email status: {str(e)}")
-            return False
-
-    def mark_friend_email_sent(self, user_id: str):
-        """Mark friend email as sent for today"""
+    def mark_daily_summary_sent(self, user_id: str):
+        """Mark daily summary email as sent today"""
         if not self.client:
             return
 
         try:
-            today = datetime.now().strftime("%Y-%m-%d")
-            self.client.table("email_log").insert({
-                "id": str(uuid4()),
-                "user_id": user_id,
-                "email_type": "friend_summary",
-                "sent_date": today,
-                "sent_at": datetime.now().isoformat()
-            }).execute()
+            now_iso = datetime.now(timezone.utc).isoformat()
+            self.client.table("daily_summary_email_state") \
+                .upsert({
+                    "user_id": user_id,
+                    "last_sent_at": now_iso,
+                    "updated_at": now_iso
+                }, on_conflict="user_id") \
+                .execute()
         except Exception as e:
-            print(f"Error marking friend email as sent: {str(e)}")
+            print(f"Error marking daily summary as sent: {str(e)}")
 
-    def mark_personal_email_sent(self, user_id: str):
-        """Mark personal email as sent for today"""
-        if not self.client:
-            return
-
-        try:
-            today = datetime.now().strftime("%Y-%m-%d")
-            self.client.table("email_log").insert({
-                "id": str(uuid4()),
-                "user_id": user_id,
-                "email_type": "personal_summary",
-                "sent_date": today,
-                "sent_at": datetime.now().isoformat()
-            }).execute()
-        except Exception as e:
-            print(f"Error marking personal email as sent: {str(e)}")
-
-    def get_user_tasks_for_today(self, user_id: str) -> List[Dict[str, Any]]:
-        """Get user's tasks for today"""
+    def get_user_tasks_for_period(
+        self,
+        user_id: str,
+        start_date: date,
+        end_date: date
+    ) -> List[Dict[str, Any]]:
+        """Get user's tasks/events for a date range (by start_date)."""
         if not self.client:
             return []
 
         try:
-            today = datetime.now().strftime("%Y-%m-%d")
-            response = self.client.table("planner_events").select("*").eq("user_id", user_id).eq("is_task", True).gte("date", today).lte("date", today).execute()
-            return response.data
+            start_ts = datetime.combine(start_date, datetime.min.time()).isoformat()
+            end_ts = datetime.combine(end_date, datetime.max.time()).isoformat()
+            response = self.client.table("tasks") \
+                .select("*") \
+                .eq("user_id", user_id) \
+                .gte("start_date", start_ts) \
+                .lte("start_date", end_ts) \
+                .execute()
+            rows = response.data or []
+            return [
+                row for row in rows
+                if str(row.get("task", "")).strip().lower() != "done"
+            ]
         except Exception as e:
-            print(f"Error getting user tasks: {str(e)}")
+            print(f"Error getting user tasks for period: {str(e)}")
             return []
 
-    def get_user_tasks_and_events_for_today(self, user_id: str) -> List[Dict[str, Any]]:
-        """Get user's tasks and events for today"""
+    def get_user_meals_for_period(
+        self,
+        user_id: str,
+        start_date: date,
+        end_date: date
+    ) -> List[Dict[str, Any]]:
+        """Get user's meals for a date range."""
         if not self.client:
             return []
 
         try:
-            today = datetime.now().strftime("%Y-%m-%d")
-            response = self.client.table("planner_events").select("*").eq("user_id", user_id).gte("date", today).lte("date", today).execute()
-            return response.data
+            start_ts = datetime.combine(start_date, datetime.min.time()).isoformat()
+            end_ts = datetime.combine(end_date, datetime.max.time()).isoformat()
+            response = self.client.table("meal_entries") \
+                .select("*") \
+                .eq("user_id", user_id) \
+                .gte("date", start_ts) \
+                .lte("date", end_ts) \
+                .execute()
+            return response.data or []
         except Exception as e:
-            print(f"Error getting user tasks and events: {str(e)}")
-            return []
-
-    def get_user_meals_for_today(self, user_id: str) -> List[Dict[str, Any]]:
-        """Get user's meals for today"""
-        if not self.client:
-            return []
-
-        try:
-            today = datetime.now().strftime("%Y-%m-%d")
-            response = self.client.table("meal_entries").select("*").eq("user_id", user_id).gte("date", today).lte("date", today).execute()
-            return response.data
-        except Exception as e:
-            print(f"Error getting user meals: {str(e)}")
+            print(f"Error getting user meals for period: {str(e)}")
             return []
 
     # ============================================================================

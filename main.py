@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Depends, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional, Dict, Any
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date
 import json
 import os
 from dotenv import load_dotenv
@@ -1741,14 +1741,11 @@ async def cron_hourly_check():
 
                 processed_count += 1
 
-                # Send daily emails (morning hours only: 7-9 AM)
-                current_hour = datetime.now().hour
-                if 7 <= current_hour <= 9:
-                    try:
-                        await check_and_send_friend_emails(user_id)
-                        await check_and_send_personal_email(user_id)
-                    except Exception as email_error:
-                        print(f"Email error for user {user_id}: {str(email_error)}")
+                # Send daily summary emails (hourly cron, only if not sent today)
+                try:
+                    await check_and_send_daily_emails(user_id)
+                except Exception as email_error:
+                    print(f"Email error for user {user_id}: {str(email_error)}")
 
             except Exception as e:
                 errors.append({
@@ -2080,64 +2077,137 @@ async def generate_weekly_suggestions_for_user(
             continue
 
 
-async def check_and_send_friend_emails(user_id: str):
-    """Check and send daily summary emails to friends"""
+def _parse_iso_datetime(value: Any) -> Optional[datetime]:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, date):
+        return datetime.combine(value, datetime.min.time())
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except Exception:
+            return None
+    return None
+
+
+def _map_task_for_email(row: Dict[str, Any]) -> Dict[str, Any]:
+    start_value = row.get("start_date") or row.get("startDate")
+    end_value = row.get("end_date") or row.get("endDate")
+    start_dt = _parse_iso_datetime(start_value)
+    end_dt = _parse_iso_datetime(end_value) or start_dt
+    is_task = True
+    if start_dt and end_dt and start_dt != end_dt:
+        is_task = False
+
+    start_iso = start_dt.isoformat() if start_dt else (str(start_value) if start_value else "")
+    end_iso = end_dt.isoformat() if end_dt else (str(end_value) if end_value else "")
+
+    display_time = ""
+    if start_dt:
+        display_time = start_dt.strftime("%d.%m.%Y %H:%M") if not is_task else start_dt.strftime("%d.%m.%Y")
+
+    assigned_ids = row.get("assigned_friend_ids") or row.get("assignedFriendIDs") or []
+
+    return {
+        "id": row.get("id"),
+        "title": row.get("title", ""),
+        "notes": row.get("notes", ""),
+        "tag": row.get("tag", ""),
+        "project": row.get("project", ""),
+        "task": row.get("task", ""),
+        "startDate": start_iso,
+        "endDate": end_iso,
+        "is_task": is_task,
+        "start_time": display_time,
+        "assignedFriendIds": assigned_ids or []
+    }
+
+
+def _map_meal_for_email(row: Dict[str, Any]) -> Dict[str, Any]:
+    meal_date_value = row.get("date")
+    meal_dt = _parse_iso_datetime(meal_date_value)
+    formatted_date = meal_dt.strftime("%d.%m.%Y") if meal_dt else ""
+
+    return {
+        "meal_type": row.get("meal_type", "Yemek"),
+        "description": row.get("description", ""),
+        "calories": row.get("calories", 0),
+        "meal_date": formatted_date
+    }
+
+
+async def check_and_send_daily_emails(user_id: str):
+    """Send daily summary emails (friends + personal) once per day via hourly cron."""
     try:
-        # Check if email was already sent today
-        if supabase_service.was_friend_email_sent_today(user_id):
-            return  # Already sent today
+        # Check if already sent today
+        if supabase_service.was_daily_summary_sent_today(user_id):
+            return
 
-        # Get user settings and data
-        settings = supabase_service.get_user_email_settings(user_id)
-        if not settings or not settings.get("friends"):
-            return  # No friends configured
+        settings = supabase_service.get_user_email_settings(user_id) or {}
+        user_name = (settings.get("user_name") or settings.get("userName") or "User").strip()
+        if not user_name:
+            user_name = "User"
+        personal_email = (settings.get("personal_email") or settings.get("personalEmail") or settings.get("email") or "").strip()
 
-        # Get tasks for today
-        tasks = supabase_service.get_user_tasks_for_today(user_id)
+        friends = supabase_service.get_user_friends(user_id)
 
-        # Send emails
-        await email_service.send_daily_summary(
-            user_name=settings.get("user_name", "User"),
-            tasks=tasks,
-            recipients=settings["friends"]
-        )
+        start_date = datetime.now(timezone.utc).date()
+        end_date = start_date + timedelta(days=6)
+        date_label = f"{start_date.strftime('%d.%m.%Y')} - {end_date.strftime('%d.%m.%Y')}"
 
-        # Mark as sent
-        supabase_service.mark_friend_email_sent(user_id)
+        raw_tasks = supabase_service.get_user_tasks_for_period(user_id, start_date, end_date)
+        mapped_tasks = [_map_task_for_email(row) for row in raw_tasks]
+
+        raw_meals = supabase_service.get_user_meals_for_period(user_id, start_date, end_date)
+        mapped_meals = [_map_meal_for_email(row) for row in raw_meals]
+
+        any_sent = False
+
+        # Friend emails (only tasks assigned to each friend)
+        if friends:
+            for friend in friends:
+                friend_id = friend.get("id")
+                if not friend_id:
+                    continue
+                recipient_email = (friend.get("email") or "").strip()
+                if not recipient_email:
+                    continue
+                friend_tasks = [
+                    task for task in mapped_tasks
+                    if friend_id in (task.get("assignedFriendIds") or [])
+                ]
+
+                # Skip if no tasks for this friend
+                if not friend_tasks:
+                    continue
+
+                sent = email_service.send_daily_summary(
+                    recipient_email=recipient_email,
+                    recipient_name=friend.get("name", "Friend"),
+                    user_name=user_name,
+                    tasks=friend_tasks,
+                    date=date_label
+                )
+                any_sent = any_sent or sent
+
+        # Personal email (if configured)
+        if personal_email:
+            sent = email_service.send_personal_summary(
+                user_email=personal_email,
+                user_name=user_name,
+                tasks=mapped_tasks,
+                meals=mapped_meals,
+                date=date_label
+            )
+            any_sent = any_sent or sent
+
+        if any_sent:
+            supabase_service.mark_daily_summary_sent(user_id)
 
     except Exception as e:
-        print(f"Error sending friend emails for user {user_id}: {str(e)}")
-
-
-async def check_and_send_personal_email(user_id: str):
-    """Check and send personal summary email to user"""
-    try:
-        # Check if email was already sent today
-        if supabase_service.was_personal_email_sent_today(user_id):
-            return  # Already sent today
-
-        # Get user settings
-        settings = supabase_service.get_user_email_settings(user_id)
-        if not settings or not settings.get("personal_email"):
-            return  # No personal email configured
-
-        # Get user data
-        tasks = supabase_service.get_user_tasks_and_events_for_today(user_id)
-        meals = supabase_service.get_user_meals_for_today(user_id)
-
-        # Send personal summary email
-        await email_service.send_personal_summary(
-            user_email=settings["personal_email"],
-            user_name=settings.get("user_name", "User"),
-            tasks=tasks,
-            meals=meals
-        )
-
-        # Mark as sent
-        supabase_service.mark_personal_email_sent(user_id)
-
-    except Exception as e:
-        print(f"Error sending personal email for user {user_id}: {str(e)}")
+        print(f"Error sending daily emails for user {user_id}: {str(e)}")
 
 
 async def _generate_daily_suggestions_for_user(

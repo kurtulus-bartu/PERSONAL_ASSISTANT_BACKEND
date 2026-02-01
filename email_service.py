@@ -419,7 +419,7 @@ class EmailService:
             date = datetime.now().strftime("%d.%m.%Y")
 
         # Create email content
-        subject = f"🌅 Günlük Özet - {date}"
+        subject = f"📆 7 Günlük Özet - {date}"
 
         # Build HTML email body
         html_body = self._build_personal_summary_html(
@@ -569,15 +569,19 @@ class EmailService:
                 item_type = "task" if is_task else "event"
                 title = task.get("title", "Başlıksız")
                 notes = task.get("notes", "")
+                display_time = task.get("start_time", "")
                 time_str = ""
 
-                if not is_task and task.get("start_time"):
-                    time_str = f" • {task['start_time']}"
+                if display_time:
+                    time_str = f" • {display_time}" if not is_task else ""
 
                 html += f'''
                     <li class="item {item_type}">
                         <div class="item-title">{"✓" if is_task else "📅"} {title}{time_str}</div>
                 '''
+
+                if display_time and is_task:
+                    html += f'<div class="item-details">📅 {display_time}</div>'
 
                 if notes:
                     html += f'<div class="item-details">{notes}</div>'
@@ -586,7 +590,7 @@ class EmailService:
 
             html += '</ul>'
         else:
-            html += '<div class="empty">Bugün için görev veya etkinlik yok</div>'
+            html += '<div class="empty">Bu dönem için görev veya etkinlik yok</div>'
 
         html += '</div>'
 
@@ -605,12 +609,16 @@ class EmailService:
                 meal_type = meal.get("meal_type", "Yemek")
                 description = meal.get("description", "")
                 calories = meal.get("calories", 0)
+                meal_date = meal.get("meal_date", "")
 
                 html += f'''
                     <li class="item meal">
                         <div class="item-title">{meal_type}</div>
                         <div class="item-details">{description}</div>
                 '''
+
+                if meal_date:
+                    html += f'<div class="item-details" style="margin-top: 5px;">📅 {meal_date}</div>'
 
                 if calories > 0:
                     html += f'<div class="item-details" style="margin-top: 5px;">🔥 {calories} kcal</div>'
@@ -619,7 +627,7 @@ class EmailService:
 
             html += '</ul>'
         else:
-            html += '<div class="empty">Bugün için yemek kaydı yok</div>'
+            html += '<div class="empty">Bu dönem için yemek kaydı yok</div>'
 
         html += '</div>'
 
