@@ -609,6 +609,7 @@ class SupabaseService:
             raise Exception("Supabase client not initialized")
 
         rows = []
+        seen_ids = set()
         timestamp = datetime.now(timezone.utc).isoformat()
 
         for suggestion in suggestions:
@@ -623,13 +624,27 @@ class SupabaseService:
                 metadata.setdefault("forDate", target_date)
             metadata.setdefault("source", source)
 
-            seed = metadata.get("title") or metadata.get("mealType") or description
-            if target_date:
+            base_date = metadata.get("forDate") or metadata.get("date") or target_date
+            seed_parts = [
+                metadata.get("title") or metadata.get("name") or metadata.get("mealType") or "",
+                metadata.get("time") or metadata.get("startTime") or "",
+                metadata.get("date") or metadata.get("forDate") or "",
+                metadata.get("menu") or metadata.get("menuItems") or "",
+                description
+            ]
+            seed = "|".join([str(part).strip() for part in seed_parts if part is not None])
+            seed = seed.strip() or description
+
+            if base_date:
                 suggestion_id = str(
-                    uuid5(NAMESPACE_URL, f"{user_id}:{target_date}:{suggestion_type}:{seed}")
+                    uuid5(NAMESPACE_URL, f"{user_id}:{base_date}:{suggestion_type}:{seed}")
                 )
             else:
                 suggestion_id = str(uuid4())
+
+            if suggestion_id in seen_ids:
+                continue
+            seen_ids.add(suggestion_id)
 
             rows.append({
                 "id": suggestion_id,
