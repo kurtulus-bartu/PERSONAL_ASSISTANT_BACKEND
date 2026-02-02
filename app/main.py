@@ -319,11 +319,11 @@ YENİ HAFIZA EKLEVERİLERİ:
 ÇIKTI KURALLARI:
 - SADECE SUGGESTION ve MEMORY tagları yaz. Başka metin ekleme.
 - Format örnekleri:
-  <SUGGESTION type="meal">ACIKLAMA [metadata:mealType=Akşam,date=2026-01-11,time=19:00,calories=600,title=Izgara tavuk ve sebze,menu=Izgara tavuk 350 kcal|Bulgur pilavı 150 kcal|Mevsim salata 100 kcal,notes=Protein ağırlıklı]</SUGGESTION>
-  <SUGGESTION type="task">ACIKLAMA [metadata:title=Haftalık plan yap,date=2026-01-11,time=20:00,durationMinutes=30,priority=medium]</SUGGESTION>
-  <SUGGESTION type="event">ACIKLAMA [metadata:title=30 dakika yürüyüş,date=2026-01-11,time=17:30,durationMinutes=30,location=Park]</SUGGESTION>
-  <SUGGESTION type="note">ACIKLAMA [metadata:title=Bugünün öğrendikleri,date=2026-01-11,category=Öğrenme]</SUGGESTION>
-  <SUGGESTION type="habit">ACIKLAMA [metadata:name=Günde 8 bardak su iç,habitType=numeric,category=Sağlık,targetValue=8,targetUnit=bardak,frequency=daily,notes=Hidrasyonu artır]</SUGGESTION>
+  <SUGGESTION type="meal">Izgara tavuk ve sebze [metadata:mealType=Akşam,date=2026-01-11,time=19:00,calories=600,title=Izgara tavuk ve sebze,menu=Izgara tavuk 350 kcal|Bulgur pilavı 150 kcal|Mevsim salata 100 kcal,notes=Protein ağırlıklı]</SUGGESTION>
+  <SUGGESTION type="task">Haftalık plan yap [metadata:title=Haftalık plan yap,date=2026-01-11,time=20:00,durationMinutes=30,priority=medium]</SUGGESTION>
+  <SUGGESTION type="event">30 dakika yürüyüş [metadata:title=30 dakika yürüyüş,date=2026-01-11,time=17:30,durationMinutes=30,location=Park]</SUGGESTION>
+  <SUGGESTION type="note">Bugünün öğrendikleri [metadata:title=Bugünün öğrendikleri,date=2026-01-11,category=Öğrenme]</SUGGESTION>
+  <SUGGESTION type="habit">Günde 8 bardak su iç [metadata:name=Günde 8 bardak su iç,habitType=numeric,category=Sağlık,targetValue=8,targetUnit=bardak,frequency=daily,notes=Hidrasyonu artır]</SUGGESTION>
   <MEMORY category="preference">Kullanıcı akşamları hafif yemek tercih ediyor</MEMORY>
 
 KURALLAR - ÇOK ÖNEMLİ:
@@ -335,6 +335,7 @@ KURALLAR - ÇOK ÖNEMLİ:
 - **TEKRAR YASAK**: todays_meals'de olan öğünü TEKRAR önerme
 - **TIME EKLE**: Her öneride mutlaka time belirt (meal, task, event için)
 - **BOŞ ZAMAN BUL**: event önerirken todays_events arasındaki boşlukları kullan
+- **AÇIKLAMA PLACEHOLDER YASAK**: SUGGESTION gövdesine "Açıklama/Description" yazma, gerçek başlık yaz
 - Metadata değerlerinde virgül kullanma (gerekirse tire veya ve kullan). Menüde **|** kullan.
 - Menu öğelerinde kalori yaz (örn: Tavuk 250 kcal)
 - calories sadece sayı olsun (örn: 450, kcal yazma)
@@ -437,15 +438,23 @@ CURRENT TIME: {current_datetime}
 - Hedef tarih bugün değilse zaman kısıtı uygulama
 
 <SUGGESTION type="meal">
-Açıklama [metadata:mealType=Kahvaltı,date=2026-01-23,time=09:00,calories=450,title=Yumurta ve sebze,menu=Yumurta 200 kcal|Avokado 150 kcal|Tam buğday ekmeği 100 kcal]
+Yumurta ve sebze tabağı [metadata:mealType=Kahvaltı,date=2026-01-23,time=09:00,calories=450,title=Yumurta ve sebze,menu=Yumurta 200 kcal|Avokado 150 kcal|Tam buğday ekmeği 100 kcal]
 </SUGGESTION>
+
+<EDIT targetType="meal" targetId="UUID_BURAYA">
+Field: calories
+NewValue: 520
+Reason: Günlük kalori hedefiyle daha uyumlu
+</EDIT>
 
 KURALLAR:
 - En fazla 3 yemek öner
 - ZORUNLU DEĞİL - uygun değilse hiç önerme
+- SUGGESTION gövdesine "Açıklama/Description" yazma; gerçek başlık yaz
 - Metadata: mealType, date, time, calories (toplam), title, menu (her öğede kalori), notes
 - Menu öğelerini **|** ile ayır (virgül kullanma). Her öğeye kalori ekle (örn: Tavuk 250 kcal)
 - Öğün tipleri: Kahvaltı (07:00-09:00), Öğle (12:00-14:00), Akşam (18:00-20:00), Atıştırmalık
+- Mevcut bir meal kaydını iyileştirmek gerekirse EDIT tag'i kullan (opsiyonel)
 """
 
 TASK_SUGGESTIONS_PROMPT = """Sen kullanıcının kişisel asistanısın. SADECE GÖREV ÖNERİLERİ üret.
@@ -464,14 +473,22 @@ CURRENT TIME: {current_datetime}
 - Hedef tarihte yapılabilecek görevler öner
 
 <SUGGESTION type="task">
-Açıklama [metadata:title=Haftalık plan yap,date=2026-01-23,time=20:00,durationMinutes=30,priority=medium]
+Haftalık plan yap [metadata:title=Haftalık plan yap,date=2026-01-23,time=20:00,durationMinutes=30,priority=medium]
 </SUGGESTION>
+
+<EDIT targetType="task" targetId="UUID_BURAYA">
+Field: priority
+NewValue: high
+Reason: Son tarihe yakın
+</EDIT>
 
 KURALLAR:
 - En fazla 4 görev öner
 - ZORUNLU DEĞİL - uygun değilse hiç önerme
+- SUGGESTION gövdesine "Açıklama/Description" yazma; gerçek başlık yaz
 - Metadata: title, date, time, durationMinutes, priority, notes
 - Priority: low, medium, high
+- Mevcut bir task kaydını iyileştirmek gerekirse EDIT tag'i kullan (opsiyonel)
 """
 
 EVENT_SUGGESTIONS_PROMPT = """Sen kullanıcının kişisel asistanısın. SADECE ETKİNLİK ÖNERİLERİ üret.
@@ -490,14 +507,22 @@ CURRENT TIME: {current_datetime}
 - Hedef tarih bugünse sadece boş zaman dilimlerinde öneri ver
 
 <SUGGESTION type="event">
-Açıklama [metadata:title=30 dakika yürüyüş,date=2026-01-23,time=17:30,durationMinutes=30,location=Park]
+30 dakika yürüyüş [metadata:title=30 dakika yürüyüş,date=2026-01-23,time=17:30,durationMinutes=30,location=Park]
 </SUGGESTION>
+
+<EDIT targetType="event" targetId="UUID_BURAYA">
+Field: startTime
+NewValue: 18:00
+Reason: Takvimde daha uygun boşluk
+</EDIT>
 
 KURALLAR:
 - En fazla 3 etkinlik öner
 - ZORUNLU DEĞİL - boş zaman yoksa hiç önerme
+- SUGGESTION gövdesine "Açıklama/Description" yazma; gerçek başlık yaz
 - Metadata: title, date, time, durationMinutes, location, notes
 - Sadece BOŞ saatlerde öneri ver (todays_events arasını kontrol et)
+- Mevcut bir event kaydını iyileştirmek gerekirse EDIT tag'i kullan (opsiyonel)
 """
 
 HABIT_SUGGESTIONS_PROMPT = """Sen kullanıcının kişisel asistanısın. SADECE ALIŞKANLIK ÖNERİLERİ üret.
@@ -512,13 +537,49 @@ HAFIZA: {ai_memories}
 - Kullanıcının hedeflerini ve tercihlerini dikkate al
 
 <SUGGESTION type="habit">
-Açıklama [metadata:name=Günde 8 bardak su iç,habitType=numeric,category=Sağlık,targetValue=8,targetUnit=bardak,frequency=daily,notes=Hidrasyonu artır]
+Günde 8 bardak su iç [metadata:name=Günde 8 bardak su iç,habitType=numeric,category=Sağlık,targetValue=8,targetUnit=bardak,frequency=daily,notes=Hidrasyonu artır]
 </SUGGESTION>
+
+<EDIT targetType="habit" targetId="UUID_BURAYA">
+Field: frequency
+NewValue: weekly
+Reason: Gerçekçi sürdürülebilirlik için
+</EDIT>
 
 KURALLAR:
 - En fazla 2 alışkanlık öner
 - ZORUNLU DEĞİL - uygun değilse hiç önerme
+- SUGGESTION gövdesine "Açıklama/Description" yazma; gerçek başlık yaz
 - Metadata: name, habitType, category, targetValue, targetUnit, frequency, notes
+- Mevcut bir habit kaydını iyileştirmek gerekirse EDIT tag'i kullan (opsiyonel)
+"""
+
+NOTE_SUGGESTIONS_PROMPT = """Sen kullanıcının kişisel asistanısın. SADECE NOT/ÖNERİ KOLEKSİYONU önerileri üret.
+
+HEDEF TARİH: {target_date}
+
+MEVCUT NOTLAR: {recent_notes}
+- Benzer önerileri tekrar etme
+
+HAFIZA: {ai_memories}
+- Kullanıcının ilgi alanlarına göre kitap, dizi, film, podcast, kurs, mekan gibi öneriler üretebilirsin
+
+FORMAT:
+<SUGGESTION type="note">
+Atomik Alışkanlıklar kitabına başla [metadata:title=Atomik Alışkanlıklar kitabına başla,date=2026-01-23,category=Kitap,collectionType=book,notes=Her gün 20 sayfa oku]
+</SUGGESTION>
+
+<EDIT targetType="note" targetId="UUID_BURAYA">
+Field: title
+NewValue: Daha net başlık
+Reason: Not daha kolay bulunur
+</EDIT>
+
+KURALLAR:
+- En fazla 3 not/öneri üret
+- ZORUNLU DEĞİL - uygun değilse hiç önerme
+- SUGGESTION gövdesine "Açıklama/Description" yazma; gerçek başlık yaz
+- Metadata: title, date, category, collectionType (opsiyonel), notes
 """
 
 # Fitness Coach System Prompt
@@ -628,6 +689,78 @@ def _normalize_text(value: str) -> str:
     return normalized
 
 
+def _normalize_placeholder_token(value: str) -> str:
+    import re
+    translation = str.maketrans({
+        "ı": "i", "İ": "i",
+        "ş": "s", "Ş": "s",
+        "ğ": "g", "Ğ": "g",
+        "ü": "u", "Ü": "u",
+        "ö": "o", "Ö": "o",
+        "ç": "c", "Ç": "c"
+    })
+    normalized = (value or "").translate(translation).strip().lower()
+    normalized = re.sub(r"[^a-z0-9]+", "", normalized)
+    return normalized
+
+
+def _is_placeholder_description(value: str) -> bool:
+    normalized = _normalize_placeholder_token(value or "")
+    placeholders = {
+        "aciklama",
+        "description",
+        "desc",
+        "icerik",
+        "content",
+        "metin"
+    }
+    return normalized in placeholders
+
+
+def _metadata_value(metadata: Dict[str, Any], keys: List[str]) -> Optional[str]:
+    if not metadata:
+        return None
+
+    lowered_map = {str(k).lower(): k for k in metadata.keys()}
+    for key in keys:
+        raw_key = lowered_map.get(str(key).lower(), key)
+        value = metadata.get(raw_key)
+        if value is None:
+            continue
+        value_str = str(value).strip()
+        if value_str:
+            return value_str
+    return None
+
+
+def _resolve_suggestion_description(description: str, metadata: Dict[str, Any]) -> str:
+    text = (description or "").strip()
+    if text and not _is_placeholder_description(text):
+        return text
+
+    fallback = _metadata_value(
+        metadata,
+        [
+            "title",
+            "name",
+            "taskTitle",
+            "eventTitle",
+            "habitName",
+            "menu",
+            "menuItems",
+            "mealType",
+            "targetTitle",
+            "newValue",
+            "reason",
+            "content"
+        ]
+    )
+    if fallback:
+        return fallback.replace("|", " • ").strip()
+
+    return "AI onerisi" if _is_placeholder_description(text) else text
+
+
 def _is_valid_time(value: Optional[str]) -> bool:
     if not value:
         return False
@@ -731,6 +864,9 @@ def _normalize_suggestion(
         return None
 
     metadata = _normalize_metadata(suggestion.get("metadata") or {})
+    description = _resolve_suggestion_description(description, metadata)
+    if not description:
+        return None
 
     # Common aliases
     if "startTime" in metadata and "time" not in metadata:
@@ -741,7 +877,7 @@ def _normalize_suggestion(
         metadata["calories"] = metadata["calorie"]
 
     # Normalize date
-    if target_date and suggestion_type in {"meal", "task", "event", "note"}:
+    if target_date and suggestion_type in {"meal", "task", "event", "note", "edit", "habit"}:
         metadata["date"] = target_date
         metadata.setdefault("forDate", target_date)
 
@@ -778,6 +914,16 @@ def _normalize_suggestion(
         metadata["title"] = description[:60]
     if suggestion_type == "habit" and "name" not in metadata:
         metadata["name"] = description[:60]
+    if suggestion_type in {"task", "event"} and "title" not in metadata:
+        metadata["title"] = description[:80]
+    if suggestion_type == "edit" and "title" not in metadata:
+        target_type = metadata.get("targetType") or metadata.get("target_type") or "öğe"
+        field = metadata.get("field") or "alan"
+        new_value = metadata.get("newValue") or metadata.get("new_value") or ""
+        base_title = f"{target_type} güncelle"
+        if field and new_value:
+            base_title = f"{target_type}: {field} -> {new_value}"
+        metadata["title"] = base_title
     if description and "content" not in metadata:
         metadata["content"] = description
 
@@ -797,9 +943,25 @@ def _suggestion_key(suggestion: Dict[str, Any], default_date: Optional[str]) -> 
     metadata = suggestion.get("metadata") or {}
     date_value = metadata.get("forDate") or metadata.get("date") or default_date or ""
     time_value = metadata.get("time") or metadata.get("startTime") or ""
-    title_value = metadata.get("title") or metadata.get("name") or metadata.get("mealType") or ""
+    title_value = (
+        metadata.get("title")
+        or metadata.get("name")
+        or metadata.get("taskTitle")
+        or metadata.get("eventTitle")
+        or metadata.get("mealType")
+        or ""
+    )
     menu_value = metadata.get("menu") or metadata.get("menuItems") or ""
-    description = suggestion.get("description") or metadata.get("content") or metadata.get("title") or metadata.get("name") or ""
+    description = (
+        suggestion.get("description")
+        or metadata.get("content")
+        or metadata.get("title")
+        or metadata.get("name")
+        or metadata.get("taskTitle")
+        or metadata.get("eventTitle")
+        or ""
+    )
+    description = _resolve_suggestion_description(str(description), metadata)
     key_text = f"{title_value}|{menu_value}|{description}"
     return f"{suggestion_type}|{date_value}|{time_value}|{_normalize_text(key_text)}"
 
@@ -828,6 +990,31 @@ def _normalize_and_filter_suggestions(
         filtered.append(normalized)
 
     return filtered
+
+
+def _build_edit_suggestion_payload(edit: Dict[str, Any]) -> Dict[str, Any]:
+    target_type = str(edit.get("targetType") or edit.get("target_type") or "item").strip()
+    field = str(edit.get("field") or "").strip()
+    new_value = str(edit.get("newValue") or edit.get("new_value") or "").strip()
+    reason = str(edit.get("reason") or "").strip()
+
+    title = f"{target_type} guncelle"
+    if field and new_value:
+        title = f"{target_type}: {field} -> {new_value}"
+
+    description_parts = [title]
+    if reason:
+        description_parts.append(reason)
+
+    metadata = {str(k): str(v) for k, v in (edit or {}).items() if v is not None}
+    metadata.setdefault("title", title)
+    metadata.setdefault("content", " - ".join(description_parts))
+
+    return {
+        "type": "edit",
+        "description": " - ".join(description_parts),
+        "metadata": metadata
+    }
 
 
 def _build_daily_suggestions_context(
@@ -1027,7 +1214,7 @@ def _build_daily_suggestions_context(
 
     def _suggestion_text(s: Dict[str, Any]) -> str:
         metadata = s.get("metadata") or {}
-        return (
+        raw = (
             s.get("description")
             or metadata.get("content")
             or metadata.get("title")
@@ -1036,6 +1223,7 @@ def _build_daily_suggestions_context(
             or metadata.get("menuItems")
             or ""
         )
+        return _resolve_suggestion_description(str(raw), metadata)
 
     # Recent accepted suggestions (last 10)
     accepted_suggestions = [
@@ -1759,6 +1947,12 @@ async def cron_hourly_check():
 
                         processed_count += 1
 
+                    # Ensure at least one fitness coaching session exists for current week
+                    try:
+                        await ensure_weekly_fitness_coaching_for_user(user_id, reference_datetime=now)
+                    except Exception as coaching_error:
+                        print(f"Fitness coaching check error for user {user_id}: {str(coaching_error)}")
+
                     # Send daily summary emails (hourly cron, only if not sent today)
                     try:
                         await check_and_send_daily_emails(user_id)
@@ -1803,23 +1997,24 @@ async def cron_weekly_fitness_coach():
     print("🏋️ Starting weekly fitness coach cron job...")
 
     try:
-        # Get all users who have workout data
-        users_with_workouts = supabase_service.get_users_with_workouts()
-        print(f"Found {len(users_with_workouts)} users with workout data")
+        # Check all known users so missing-week sessions can be backfilled
+        all_user_ids = supabase_service.get_all_user_ids()
+        print(f"Found {len(all_user_ids)} users for weekly fitness coaching")
 
         coaching_sessions_created = 0
 
-        for user_id in users_with_workouts:
+        for user_id in all_user_ids:
             try:
-                await generate_fitness_coaching_for_user(user_id)
-                coaching_sessions_created += 1
+                created = await ensure_weekly_fitness_coaching_for_user(user_id, force=True)
+                if created:
+                    coaching_sessions_created += 1
             except Exception as e:
                 print(f"Error generating fitness coaching for user {user_id}: {str(e)}")
                 continue
 
         return {
             "status": "success",
-            "users_processed": len(users_with_workouts),
+            "users_processed": len(all_user_ids),
             "coaching_sessions_created": coaching_sessions_created
         }
 
@@ -1828,21 +2023,42 @@ async def cron_weekly_fitness_coach():
         return {"status": "error", "message": str(e)}
 
 
-async def generate_fitness_coaching_for_user(user_id: str):
-    """Generate weekly fitness coaching for a single user"""
-    from datetime import datetime, timedelta
+def _week_bounds(reference_datetime: Optional[datetime] = None) -> tuple[date, date]:
+    now = reference_datetime or datetime.now(timezone.utc)
+    today = now.date()
+    week_start = today - timedelta(days=today.weekday())
+    week_end = week_start + timedelta(days=6)
+    return week_start, week_end
+
+
+async def ensure_weekly_fitness_coaching_for_user(
+    user_id: str,
+    reference_datetime: Optional[datetime] = None,
+    force: bool = False
+) -> bool:
+    week_start, _ = _week_bounds(reference_datetime)
+    if not force and supabase_service.has_fitness_coaching_for_week(user_id, week_start):
+        return False
+    return await generate_fitness_coaching_for_user(
+        user_id=user_id,
+        reference_datetime=reference_datetime,
+        force=force
+    )
+
+
+async def generate_fitness_coaching_for_user(
+    user_id: str,
+    reference_datetime: Optional[datetime] = None,
+    force: bool = False
+) -> bool:
+    """Generate weekly fitness coaching for a single user."""
     import json
 
-    # Get last 7 days of workouts
-    today = datetime.now()
-    week_start = (today - timedelta(days=7)).date()
-    week_end = today.date()
+    week_start, week_end = _week_bounds(reference_datetime)
+    if not force and supabase_service.has_fitness_coaching_for_week(user_id, week_start):
+        return False
 
     workouts = supabase_service.get_workouts_for_period(user_id, week_start, week_end)
-
-    if len(workouts) == 0:
-        print(f"No workouts found for user {user_id}, skipping coaching")
-        return
 
     # Calculate weekly metrics
     metrics = calculate_weekly_fitness_metrics(workouts, week_start, week_end)
@@ -1869,22 +2085,27 @@ async def generate_fitness_coaching_for_user(user_id: str):
         "previous_week_program": previous_coaching.get("next_week_program", {}) if previous_coaching else {}
     }
 
+    coaching_data = {
+        "weekly_summary": "Bu hafta antrenman verileri değerlendirildi.",
+        "strengths": [],
+        "areas_for_improvement": [],
+        "motivation_message": "Küçük ama düzenli adımlar uzun vadede büyük fark yaratır.",
+        "next_week_program": {}
+    }
+
     # Generate AI coaching
     api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        print("GEMINI_API_KEY not set, skipping AI coaching generation")
-        return
-
-    service = EnhancedGeminiService(api_key=api_key)
-    coaching_prompt = FITNESS_COACH_PROMPT.format(**context)
-    response = service.generate_response(
-        message="Haftalık fitness koçluğu yap",
-        context=context,
-        system_prompt=coaching_prompt
-    )
-
-    # Parse coaching response
-    coaching_data = parse_fitness_coaching_response(response)
+    if api_key:
+        service = EnhancedGeminiService(api_key=api_key)
+        coaching_prompt = FITNESS_COACH_PROMPT.format(**context)
+        response = service.generate_response(
+            message="Haftalık fitness koçluğu yap",
+            context=context,
+            system_prompt=coaching_prompt
+        )
+        coaching_data = parse_fitness_coaching_response(response)
+    else:
+        print("GEMINI_API_KEY not set, saving fallback coaching session")
 
     # Save to database
     coaching_session = {
@@ -1897,6 +2118,7 @@ async def generate_fitness_coaching_for_user(user_id: str):
 
     supabase_service.save_fitness_coaching_session(coaching_session)
     print(f"✅ Created fitness coaching session for user {user_id}")
+    return True
 
 
 def calculate_weekly_fitness_metrics(workouts: list, week_start, week_end) -> dict:
@@ -2173,6 +2395,18 @@ async def check_and_send_daily_emails(user_id: str):
         personal_email = (settings.get("personal_email") or settings.get("personalEmail") or settings.get("email") or "").strip()
 
         friends = supabase_service.get_user_friends(user_id)
+        if not personal_email:
+            for friend in friends:
+                friend_name = (friend.get("name") or "").strip().lower()
+                friend_email = (friend.get("email") or "").strip()
+                if not friend_email:
+                    continue
+                if friend_name in {"kendim", "ben", "myself", "self", "me"}:
+                    personal_email = friend_email
+                    break
+                if user_name and friend_name == user_name.strip().lower():
+                    personal_email = friend_email
+                    break
 
         start_date = datetime.now(timezone.utc).date()
         end_date = start_date + timedelta(days=6)
@@ -2287,17 +2521,7 @@ async def _generate_daily_suggestions_for_user(
 
     # Convert edits to suggestions for storage
     for edit in edits:
-        suggestions.append({
-            'type': 'edit',
-            'description': f"Düzenleme önerisi: {edit['field']} → {edit['newValue']}",
-            'metadata': {
-                'targetType': edit['targetType'],
-                'targetId': edit['targetId'],
-                'field': edit['field'],
-                'newValue': edit['newValue'],
-                'reason': edit['reason']
-            }
-        })
+        suggestions.append(_build_edit_suggestion_payload(edit))
 
     # Save AI memories first (if any)
     memory_count = 0
@@ -2420,11 +2644,7 @@ async def _generate_daily_suggestions_phased(
 
         edits = parse_edit_suggestions(meal_response or "")
         for edit in edits:
-            all_suggestions.append({
-                'type': 'edit',
-                'description': f"Düzenleme: {edit['field']} → {edit['newValue']}",
-                'metadata': edit
-            })
+            all_suggestions.append(_build_edit_suggestion_payload(edit))
     except Exception as e:
         print(f"⚠️ Meal phase error: {str(e)}")
 
@@ -2446,11 +2666,7 @@ async def _generate_daily_suggestions_phased(
 
         edits = parse_edit_suggestions(task_response or "")
         for edit in edits:
-            all_suggestions.append({
-                'type': 'edit',
-                'description': f"Düzenleme: {edit['field']} → {edit['newValue']}",
-                'metadata': edit
-            })
+            all_suggestions.append(_build_edit_suggestion_payload(edit))
     except Exception as e:
         print(f"⚠️ Task phase error: {str(e)}")
 
@@ -2472,11 +2688,7 @@ async def _generate_daily_suggestions_phased(
 
         edits = parse_edit_suggestions(event_response or "")
         for edit in edits:
-            all_suggestions.append({
-                'type': 'edit',
-                'description': f"Düzenleme: {edit['field']} → {edit['newValue']}",
-                'metadata': edit
-            })
+            all_suggestions.append(_build_edit_suggestion_payload(edit))
     except Exception as e:
         print(f"⚠️ Event phase error: {str(e)}")
 
@@ -2496,6 +2708,27 @@ async def _generate_daily_suggestions_phased(
         all_memories.extend(parsed.get("memories", []))
     except Exception as e:
         print(f"⚠️ Habit phase error: {str(e)}")
+
+    # Phase 5: Note/recommendation suggestions
+    try:
+        note_response = service.generate_response(
+            message=f"Hedef tarih: {resolved_date}. Not ve öneri koleksiyonu önerileri üret.",
+            context=context_json,
+            system_prompt=NOTE_SUGGESTIONS_PROMPT.format(
+                recent_notes=context.get("recent_notes", []),
+                ai_memories=context.get("ai_memories", []),
+                target_date=resolved_date
+            )
+        )
+        parsed = parse_suggestions_and_memories(note_response or "")
+        all_suggestions.extend(parsed.get("suggestions", []))
+        all_memories.extend(parsed.get("memories", []))
+
+        edits = parse_edit_suggestions(note_response or "")
+        for edit in edits:
+            all_suggestions.append(_build_edit_suggestion_payload(edit))
+    except Exception as e:
+        print(f"⚠️ Note phase error: {str(e)}")
 
     # Save AI memories
     memory_count = 0

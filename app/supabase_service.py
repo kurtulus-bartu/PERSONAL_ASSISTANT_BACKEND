@@ -255,10 +255,16 @@ class SupabaseService:
     def _upsert_rows(self, rows: List[Dict]) -> None:
         if not rows or not self.client:
             return
-
-        self.client.table("fund_daily_values") \
-            .upsert(rows, on_conflict="user_id,fund_code,snapshot_date") \
-            .execute()
+        try:
+            self.client.table("fund_daily_values") \
+                .upsert(rows, on_conflict="user_id,fund_code,snapshot_date") \
+                .execute()
+        except Exception as e:
+            print(
+                "Supabase snapshot warning: fund_daily_values table missing or unavailable. "
+                "Run migration 011_add_fund_daily_values.sql. "
+                f"Error: {str(e)}"
+            )
 
     def _upsert_stock_rows(self, rows: List[Dict]) -> None:
         if not rows or not self.client:
@@ -621,7 +627,20 @@ class SupabaseService:
                 "ö": "o", "Ö": "o",
                 "ç": "c", "Ç": "c"
             })
-            return text.translate(translation).strip().lower()
+            normalized = text.translate(translation).strip().lower()
+            return re.sub(r"[^a-z0-9]+", "", normalized)
+
+        def metadata_value(metadata: Dict[str, Any], keys: List[str]) -> Optional[str]:
+            lowered_map = {str(k).lower(): k for k in metadata.keys()}
+            for key in keys:
+                real_key = lowered_map.get(key.lower(), key)
+                value = metadata.get(real_key)
+                if value is None:
+                    continue
+                value_str = str(value).strip()
+                if value_str:
+                    return value_str
+            return None
 
         for suggestion in suggestions:
             suggestion_type = (suggestion.get("type") or "note").strip()
@@ -631,12 +650,30 @@ class SupabaseService:
 
             metadata = suggestion.get("metadata") or {}
             normalized = normalize_placeholder(description)
-            if normalized in {"aciklama", "description", "desc"}:
-                fallback = metadata.get("title") or metadata.get("name") or metadata.get("menu") or metadata.get("menuItems") or metadata.get("mealType")
+            if normalized in {"aciklama", "description", "desc", "icerik", "content", "metin"}:
+                fallback = metadata_value(
+                    metadata,
+                    [
+                        "title",
+                        "name",
+                        "taskTitle",
+                        "eventTitle",
+                        "habitName",
+                        "menu",
+                        "menuItems",
+                        "mealType",
+                        "targetTitle",
+                        "newValue",
+                        "reason",
+                        "content"
+                    ]
+                )
                 if fallback:
-                    description = str(fallback).strip()
+                    description = str(fallback).replace("|", " • ").strip()
                     if not description:
                         continue
+                else:
+                    description = "AI onerisi"
             if target_date:
                 metadata.setdefault("date", target_date)
                 metadata.setdefault("forDate", target_date)
@@ -646,7 +683,7 @@ class SupabaseService:
 
             base_date = metadata.get("forDate") or metadata.get("date") or target_date
             seed_parts = [
-                metadata.get("title") or metadata.get("name") or metadata.get("mealType") or "",
+                metadata.get("title") or metadata.get("name") or metadata.get("taskTitle") or metadata.get("eventTitle") or metadata.get("mealType") or "",
                 metadata.get("time") or metadata.get("startTime") or "",
                 metadata.get("date") or metadata.get("forDate") or "",
                 metadata.get("menu") or metadata.get("menuItems") or "",
@@ -695,16 +732,17 @@ class SupabaseService:
         for meal in (existing_meals or []):
             date_value = str(meal.get("date", ""))[:10]
             meal_type = str(meal.get("mealType", "")).strip().lower()
-            if date_value and meal_type:
-                existing_keys.add((date_value, meal_type))
+            description = str(meal.get("description", "")).strip().lower()
+            if date_value and meal_type and description:
+                existing_keys.add((date_value, meal_type, description))
 
-        def parse_total_calories(menu_items: List[str]) -> float:
-            total = 0
-            for item in menu_items:
-                match = re.search(r"(\\d{2,4})\\s*kcal", item.lower())
-                if match:
-                    total += int(match.group(1))
-            return float(total)
+        def parse_item_calories(text: str) -> Optional[float]:
+            if not text:
+                return None
+            match = re.search(r"(\d{2,4})\s*kcal", text.lower())
+            if match:
+                return float(match.group(1))
+            return None
 
         meal_entries: List[Dict[str, Any]] = []
 
@@ -720,35 +758,53 @@ class SupabaseService:
                 continue
 
             date_key = date_value[:10]
-            key = (date_key, meal_type.lower())
-            if key in existing_keys:
-                continue
-
             raw_menu = metadata.get("menu") or metadata.get("menuItems") or ""
             if raw_menu:
                 menu_items = [item.strip() for item in raw_menu.split("|") if item.strip()]
             else:
-                menu_items = [suggestion.get("description", "").strip()]
+                fallback_text = (
+                    str(suggestion.get("description", "")).strip()
+                    or str(metadata.get("title", "")).strip()
+                )
+                menu_items = [fallback_text] if fallback_text else []
 
-            description = " • ".join([item for item in menu_items if item])
+            if not menu_items:
+                continue
 
-            calories_value = 0.0
+            metadata_total = 0.0
             if metadata.get("calories"):
                 digits = re.sub(r"[^0-9.]", "", str(metadata.get("calories")))
                 if digits:
-                    calories_value = float(digits)
-            if calories_value <= 0 and menu_items:
-                calories_value = parse_total_calories(menu_items)
+                    metadata_total = float(digits)
 
-            meal_entries.append({
-                "id": str(uuid4()),
-                "date": date_key,
-                "mealType": meal_type,
-                "description": description,
-                "calories": calories_value,
-                "notes": metadata.get("notes", "")
-            })
-            existing_keys.add(key)
+            parsed_values = [parse_item_calories(item) for item in menu_items]
+            parsed_total = sum([value for value in parsed_values if value is not None])
+            fallback_per_item = 0.0
+            if metadata_total > 0 and parsed_total <= 0:
+                fallback_per_item = metadata_total / max(len(menu_items), 1)
+
+            for index, item in enumerate(menu_items):
+                clean_item = re.sub(r"\s+", " ", item).strip(" -•*")
+                if not clean_item:
+                    continue
+
+                dedupe_key = (date_key, meal_type.lower(), clean_item.lower())
+                if dedupe_key in existing_keys:
+                    continue
+
+                item_calories = parsed_values[index] if index < len(parsed_values) else None
+                if item_calories is None and fallback_per_item > 0:
+                    item_calories = fallback_per_item
+
+                meal_entries.append({
+                    "id": str(uuid4()),
+                    "date": date_key,
+                    "mealType": meal_type,
+                    "description": clean_item,
+                    "calories": float(item_calories or 0.0),
+                    "notes": metadata.get("notes", "")
+                })
+                existing_keys.add(dedupe_key)
 
         if meal_entries:
             self._save_meal_entries(user_id, meal_entries)
@@ -947,6 +1003,13 @@ class SupabaseService:
 
     def _save_weight_entries(self, user_id: str, entries: List[Dict]) -> None:
         """Kilo kayıtlarını kaydet"""
+        latest_per_day: Dict[str, Dict] = {}
+        for entry in entries:
+            date_key = str(entry.get("date", ""))[:10]
+            if not date_key:
+                continue
+            latest_per_day[date_key] = entry
+
         rows = [
             {
                 "id": entry["id"],
@@ -958,14 +1021,22 @@ class SupabaseService:
                 "bmi": entry.get("bmi", 0),
                 "notes": entry.get("notes", "")
             }
-            for entry in entries
+            for entry in latest_per_day.values()
         ]
 
         if rows:
-            self.client.table("weight_entries").upsert(rows, on_conflict="id").execute()
+            self.client.table("weight_entries").upsert(rows, on_conflict="user_id,date").execute()
+            self._remove_duplicates("weight_entries", ["date"], user_id)
 
     def _save_sleep_entries(self, user_id: str, entries: List[Dict]) -> None:
         """Uyku kayıtlarını kaydet"""
+        latest_per_day: Dict[str, Dict] = {}
+        for entry in entries:
+            date_key = str(entry.get("date", ""))[:10]
+            if not date_key:
+                continue
+            latest_per_day[date_key] = entry
+
         rows = [
             {
                 "id": entry["id"],
@@ -976,11 +1047,12 @@ class SupabaseService:
                 "quality": entry["quality"],
                 "notes": entry.get("notes", "")
             }
-            for entry in entries
+            for entry in latest_per_day.values()
         ]
 
         if rows:
-            self.client.table("sleep_entries").upsert(rows, on_conflict="id").execute()
+            self.client.table("sleep_entries").upsert(rows, on_conflict="user_id,date").execute()
+            self._remove_duplicates("sleep_entries", ["date"], user_id)
 
     def _save_meal_entries(self, user_id: str, entries: List[Dict]) -> None:
         """Yemek kayıtlarını kaydet"""
@@ -1308,9 +1380,44 @@ class SupabaseService:
             .limit(300) \
             .execute()
         backup_data["aiSuggestions"] = []
+
+        def _normalize_placeholder_local(text: str) -> str:
+            translation = str.maketrans({
+                "ı": "i", "İ": "i",
+                "ş": "s", "Ş": "s",
+                "ğ": "g", "Ğ": "g",
+                "ü": "u", "Ü": "u",
+                "ö": "o", "Ö": "o",
+                "ç": "c", "Ç": "c"
+            })
+            lowered = (text or "").translate(translation).strip().lower()
+            return re.sub(r"[^a-z0-9]+", "", lowered)
+
         for row in (ai_suggestions_response.data or []):
             metadata = row.get("metadata") or {}
-            description = row.get("description") or metadata.get("content") or metadata.get("title") or metadata.get("name") or metadata.get("menu") or metadata.get("menuItems") or ""
+            description = (
+                row.get("description")
+                or metadata.get("content")
+                or metadata.get("title")
+                or metadata.get("name")
+                or metadata.get("taskTitle")
+                or metadata.get("eventTitle")
+                or metadata.get("menu")
+                or metadata.get("menuItems")
+                or ""
+            )
+            normalized = _normalize_placeholder_local(str(description))
+            if normalized in {"aciklama", "description", "desc", "icerik", "content", "metin"}:
+                description = (
+                    metadata.get("title")
+                    or metadata.get("name")
+                    or metadata.get("taskTitle")
+                    or metadata.get("eventTitle")
+                    or metadata.get("menu")
+                    or metadata.get("menuItems")
+                    or metadata.get("mealType")
+                    or "AI onerisi"
+                )
             backup_data["aiSuggestions"].append({
                 "id": row["id"],
                 "type": row.get("type", ""),
@@ -1818,6 +1925,23 @@ class SupabaseService:
             print(f"Error getting latest fitness coaching: {str(e)}")
             return None
 
+    def has_fitness_coaching_for_week(self, user_id: str, week_start_date: date) -> bool:
+        """Check whether a coaching session already exists for given week."""
+        if not self.client:
+            return False
+
+        try:
+            response = self.client.table("fitness_coaching_sessions") \
+                .select("id") \
+                .eq("user_id", user_id) \
+                .eq("week_start_date", str(week_start_date)) \
+                .limit(1) \
+                .execute()
+            return bool(response.data)
+        except Exception as e:
+            print(f"Error checking weekly fitness coaching existence: {str(e)}")
+            return False
+
     def save_fitness_coaching_session(self, session_data: Dict) -> bool:
         """Save a fitness coaching session"""
         if not self.client:
@@ -1845,7 +1969,9 @@ class SupabaseService:
             }
 
             # Upsert (insert or update if exists)
-            response = self.client.table("fitness_coaching_sessions").upsert(session_row).execute()
+            self.client.table("fitness_coaching_sessions") \
+                .upsert(session_row, on_conflict="user_id,week_start_date") \
+                .execute()
 
             return True
 

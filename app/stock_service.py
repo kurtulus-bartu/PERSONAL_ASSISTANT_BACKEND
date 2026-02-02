@@ -64,6 +64,15 @@ class StockService:
                 print(f"Cache hit for {cache_key}")
                 return cached_data
 
+        # Turkish tickers (.IS) are often flaky in yfinance.info/fast_info.
+        # Prefer direct Yahoo chart API first for stability.
+        if symbol_upper.endswith(".IS"):
+            chart_result = self._fetch_chart_price(symbol_upper, date)
+            if chart_result:
+                if not date:
+                    self._save_to_cache(symbol_upper, chart_result)
+                return chart_result
+
         # Try fetching with retries
         max_retries = 3
         for attempt in range(max_retries):
@@ -179,6 +188,9 @@ class StockService:
                 }
 
             response = self._session.get(url, params=params, timeout=10)
+            if response.status_code == 429:
+                time.sleep(1.0)
+                response = self._session.get(url, params=params, timeout=10)
             response.raise_for_status()
             payload = response.json()
 
