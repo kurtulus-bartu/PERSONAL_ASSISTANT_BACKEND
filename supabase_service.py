@@ -2,7 +2,7 @@ import asyncio
 import os
 import re
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from fastapi import HTTPException
@@ -651,27 +651,33 @@ class SupabaseService:
             metadata = suggestion.get("metadata") or {}
             normalized = normalize_placeholder(description)
             if normalized in {"aciklama", "description", "desc", "icerik", "content", "metin"}:
-                fallback = metadata_value(
-                    metadata,
-                    [
-                        "title",
-                        "name",
-                        "taskTitle",
-                        "eventTitle",
-                        "habitName",
-                        "menu",
-                        "menuItems",
-                        "mealType",
-                        "targetTitle",
-                        "newValue",
-                        "reason",
-                        "content"
-                    ]
-                )
-                if fallback:
-                    description = str(fallback).replace("|", " • ").strip()
-                    if not description:
+                fallback = None
+                for key in [
+                    "title",
+                    "name",
+                    "taskTitle",
+                    "eventTitle",
+                    "habitName",
+                    "menu",
+                    "menuItems",
+                    "mealType",
+                    "targetTitle",
+                    "newValue",
+                    "reason",
+                    "content"
+                ]:
+                    candidate = metadata_value(metadata, [key])
+                    if not candidate:
                         continue
+                    normalized_candidate = normalize_placeholder(candidate)
+                    if normalized_candidate in {"aciklama", "description", "desc", "icerik", "content", "metin"}:
+                        continue
+                    fallback = str(candidate).replace("|", " • ").strip()
+                    if fallback:
+                        break
+
+                if fallback:
+                    description = fallback
                 else:
                     description = "AI onerisi"
             if target_date:
@@ -744,6 +750,30 @@ class SupabaseService:
                 return float(match.group(1))
             return None
 
+        def split_menu_items(raw_value: str) -> List[str]:
+            if not raw_value:
+                return []
+            normalized = (
+                str(raw_value)
+                .replace("•", "\n")
+                .replace("|", "\n")
+                .replace(";", "\n")
+            )
+            parts: List[str] = []
+            for line in normalized.splitlines():
+                parts.extend(line.split(","))
+
+            cleaned: List[str] = []
+            seen: Set[str] = set()
+            for part in parts:
+                item = re.sub(r"\s+", " ", str(part)).strip(" -•*")
+                key = item.lower()
+                if not item or key in seen:
+                    continue
+                seen.add(key)
+                cleaned.append(item)
+            return cleaned
+
         meal_entries: List[Dict[str, Any]] = []
 
         for suggestion in suggestions:
@@ -759,14 +789,15 @@ class SupabaseService:
 
             date_key = date_value[:10]
             raw_menu = metadata.get("menu") or metadata.get("menuItems") or ""
-            if raw_menu:
-                menu_items = [item.strip() for item in raw_menu.split("|") if item.strip()]
-            else:
+            menu_items = split_menu_items(str(raw_menu))
+            if not menu_items:
                 fallback_text = (
                     str(suggestion.get("description", "")).strip()
                     or str(metadata.get("title", "")).strip()
                 )
-                menu_items = [fallback_text] if fallback_text else []
+                menu_items = split_menu_items(fallback_text)
+                if not menu_items and fallback_text:
+                    menu_items = [fallback_text]
 
             if not menu_items:
                 continue
@@ -1408,16 +1439,28 @@ class SupabaseService:
             )
             normalized = _normalize_placeholder_local(str(description))
             if normalized in {"aciklama", "description", "desc", "icerik", "content", "metin"}:
-                description = (
-                    metadata.get("title")
-                    or metadata.get("name")
-                    or metadata.get("taskTitle")
-                    or metadata.get("eventTitle")
-                    or metadata.get("menu")
-                    or metadata.get("menuItems")
-                    or metadata.get("mealType")
-                    or "AI onerisi"
-                )
+                fallback = None
+                for key in [
+                    "title",
+                    "name",
+                    "taskTitle",
+                    "eventTitle",
+                    "menu",
+                    "menuItems",
+                    "mealType",
+                    "newValue",
+                    "reason"
+                ]:
+                    candidate = metadata.get(key)
+                    if not candidate:
+                        continue
+                    normalized_candidate = _normalize_placeholder_local(str(candidate))
+                    if normalized_candidate in {"aciklama", "description", "desc", "icerik", "content", "metin"}:
+                        continue
+                    fallback = str(candidate).replace("|", " • ").strip()
+                    if fallback:
+                        break
+                description = fallback or "AI onerisi"
             backup_data["aiSuggestions"].append({
                 "id": row["id"],
                 "type": row.get("type", ""),

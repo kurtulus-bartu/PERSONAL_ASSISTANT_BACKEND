@@ -738,25 +738,29 @@ def _resolve_suggestion_description(description: str, metadata: Dict[str, Any]) 
     if text and not _is_placeholder_description(text):
         return text
 
-    fallback = _metadata_value(
-        metadata,
-        [
-            "title",
-            "name",
-            "taskTitle",
-            "eventTitle",
-            "habitName",
-            "menu",
-            "menuItems",
-            "mealType",
-            "targetTitle",
-            "newValue",
-            "reason",
-            "content"
-        ]
-    )
-    if fallback:
-        return fallback.replace("|", " • ").strip()
+    for key in [
+        "title",
+        "name",
+        "taskTitle",
+        "eventTitle",
+        "habitName",
+        "menu",
+        "menuItems",
+        "mealType",
+        "targetTitle",
+        "newValue",
+        "reason",
+        "content"
+    ]:
+        candidate = _metadata_value(metadata, [key])
+        if not candidate:
+            continue
+        normalized_candidate = candidate.replace("|", " • ").strip()
+        if not normalized_candidate:
+            continue
+        if _is_placeholder_description(normalized_candidate):
+            continue
+        return normalized_candidate
 
     return "AI onerisi" if _is_placeholder_description(text) else text
 
