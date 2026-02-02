@@ -8,14 +8,14 @@ import json
 from typing import List, Dict, Optional, Any, Tuple
 import google.generativeai as genai
 
-from ai_capabilities import (
+from .ai_capabilities import (
     get_capabilities_prompt,
     parse_data_request,
     format_response_with_request_info,
     parse_suggestions_and_memories,
     remove_tags_from_response
 )
-from ai_data_provider import AIDataProvider
+from .ai_data_provider import AIDataProvider
 
 
 class EnhancedGeminiService:

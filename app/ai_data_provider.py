@@ -5,7 +5,7 @@ Provides filtered data to AI based on data requests
 
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timezone
-from ai_capabilities import (
+from .ai_capabilities import (
     DataCategory,
     TimeRange,
     calculate_date_range,
