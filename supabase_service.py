@@ -764,15 +764,8 @@ class SupabaseService:
         def split_menu_items(raw_value: str) -> List[str]:
             if not raw_value:
                 return []
-            normalized = (
-                str(raw_value)
-                .replace("•", "\n")
-                .replace("|", "\n")
-                .replace(";", "\n")
-            )
-            parts: List[str] = []
-            for line in normalized.splitlines():
-                parts.extend(line.split(","))
+            normalized = str(raw_value)
+            parts = re.split(r"\s*(?:\||•|·|∙|●|◦|;|\n|,)\s*", normalized)
 
             cleaned: List[str] = []
             seen: Set[str] = set()
@@ -830,7 +823,12 @@ class SupabaseService:
                 if not clean_item:
                     continue
 
-                dedupe_key = (date_key, meal_type.lower(), clean_item.lower())
+                # Kalori bilgisini açıklamadan ayır (calories sütununa ayrıca yazılacak)
+                display_name = re.sub(r"\s*\d{2,4}\s*kcal\b", "", clean_item, flags=re.IGNORECASE).strip(" -•*,")
+                if not display_name:
+                    display_name = clean_item
+
+                dedupe_key = (date_key, meal_type.lower(), display_name.lower())
                 if dedupe_key in existing_keys:
                     continue
 
@@ -842,7 +840,7 @@ class SupabaseService:
                     "id": str(uuid4()),
                     "date": date_key,
                     "mealType": meal_type,
-                    "description": clean_item,
+                    "description": display_name,
                     "calories": float(item_calories or 0.0),
                     "notes": metadata.get("notes", "")
                 })

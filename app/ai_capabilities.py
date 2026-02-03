@@ -553,7 +553,10 @@ def parse_suggestions_and_memories(ai_response: str) -> Dict[str, List[Dict[str,
             content = re.sub(metadata_pattern, '', content).strip()
 
             # Parse metadata key=value pairs
-            for pair in metadata_str.split(','):
+            # Use lookahead to only split on commas followed by key=value,
+            # preserving commas within values (e.g. menu items)
+            pairs = re.split(r',(?=\s*[a-zA-Z_]\w*\s*=)', metadata_str)
+            for pair in pairs:
                 if '=' in pair:
                     key, value = pair.split('=', 1)
                     metadata[key.strip()] = value.strip()

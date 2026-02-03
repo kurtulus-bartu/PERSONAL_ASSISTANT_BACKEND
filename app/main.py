@@ -811,7 +811,13 @@ def _parse_menu_items(raw: str) -> List[str]:
     import re
     if not raw:
         return []
-    cleaned = raw.replace("•", "|")
+    cleaned = (
+        raw.replace("•", "|")
+           .replace("·", "|")
+           .replace("∙", "|")
+           .replace("●", "|")
+           .replace("◦", "|")
+    )
     parts = re.split(r"\s*\|\s*|\s*;\s*|\s*,\s*|\s*\n\s*", cleaned)
     items = [part.strip() for part in parts if part and part.strip()]
     return items[:6]
