@@ -536,8 +536,8 @@ def parse_suggestions_and_memories(ai_response: str) -> Dict[str, List[Dict[str,
 
     # Parse SUGGESTION tags
     # Format: <SUGGESTION type="task">Text here[metadata:key=value,key2=value2]</SUGGESTION>
-    suggestion_pattern = r'<SUGGESTION\s+type="([^"]+)">([^<]+)</SUGGESTION>'
-    suggestion_matches = re.findall(suggestion_pattern, ai_response, re.DOTALL)
+    suggestion_pattern = r'<SUGGESTION\s+type="([^"]+)">(.*?)</SUGGESTION>'
+    suggestion_matches = re.findall(suggestion_pattern, ai_response, re.DOTALL | re.IGNORECASE)
 
     for suggestion_type, content in suggestion_matches:
         content = content.strip()
@@ -566,13 +566,17 @@ def parse_suggestions_and_memories(ai_response: str) -> Dict[str, List[Dict[str,
 
     # Parse MEMORY tags
     # Format: <MEMORY category="habits">Text here</MEMORY>
-    memory_pattern = r'<MEMORY\s+category="([^"]+)">([^<]+)</MEMORY>'
-    memory_matches = re.findall(memory_pattern, ai_response, re.DOTALL)
+    memory_pattern = r'<MEMORY(?:\s+category="([^"]+)")?>(.*?)</MEMORY>'
+    memory_matches = re.findall(memory_pattern, ai_response, re.DOTALL | re.IGNORECASE)
 
     for category, content in memory_matches:
+        normalized_category = (category or "general").strip() or "general"
+        normalized_content = (content or "").strip()
+        if not normalized_content:
+            continue
         memories.append({
-            'content': content.strip(),
-            'category': category
+            'content': normalized_content,
+            'category': normalized_category
         })
 
     return {

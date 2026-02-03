@@ -317,7 +317,7 @@ YENİ HAFIZA EKLEVERİLERİ:
   <MEMORY category="health">Laktozu iyi tolere edemiyor</MEMORY>
 
 ÇIKTI KURALLARI:
-- SADECE SUGGESTION ve MEMORY tagları yaz. Başka metin ekleme.
+- SADECE SUGGESTION, MEMORY ve gerekirse EDIT tagları yaz. Başka metin ekleme.
 - Format örnekleri:
   <SUGGESTION type="meal">Izgara tavuk ve sebze [metadata:mealType=Akşam,date=2026-01-11,time=19:00,calories=600,title=Izgara tavuk ve sebze,menu=Izgara tavuk 350 kcal|Bulgur pilavı 150 kcal|Mevsim salata 100 kcal,notes=Protein ağırlıklı]</SUGGESTION>
   <SUGGESTION type="task">Haftalık plan yap [metadata:title=Haftalık plan yap,date=2026-01-11,time=20:00,durationMinutes=30,priority=medium]</SUGGESTION>
@@ -455,6 +455,7 @@ KURALLAR:
 - Menu öğelerini **|** ile ayır (virgül kullanma). Her öğeye kalori ekle (örn: Tavuk 250 kcal)
 - Öğün tipleri: Kahvaltı (07:00-09:00), Öğle (12:00-14:00), Akşam (18:00-20:00), Atıştırmalık
 - Mevcut bir meal kaydını iyileştirmek gerekirse EDIT tag'i kullan (opsiyonel)
+- Yeni öğrendiğin kalıcı bir kullanıcı bilgisi varsa MEMORY tag'i ekle (opsiyonel)
 """
 
 TASK_SUGGESTIONS_PROMPT = """Sen kullanıcının kişisel asistanısın. SADECE GÖREV ÖNERİLERİ üret.
@@ -489,6 +490,7 @@ KURALLAR:
 - Metadata: title, date, time, durationMinutes, priority, notes
 - Priority: low, medium, high
 - Mevcut bir task kaydını iyileştirmek gerekirse EDIT tag'i kullan (opsiyonel)
+- Yeni öğrendiğin kalıcı bir kullanıcı bilgisi varsa MEMORY tag'i ekle (opsiyonel)
 """
 
 EVENT_SUGGESTIONS_PROMPT = """Sen kullanıcının kişisel asistanısın. SADECE ETKİNLİK ÖNERİLERİ üret.
@@ -523,6 +525,7 @@ KURALLAR:
 - Metadata: title, date, time, durationMinutes, location, notes
 - Sadece BOŞ saatlerde öneri ver (todays_events arasını kontrol et)
 - Mevcut bir event kaydını iyileştirmek gerekirse EDIT tag'i kullan (opsiyonel)
+- Yeni öğrendiğin kalıcı bir kullanıcı bilgisi varsa MEMORY tag'i ekle (opsiyonel)
 """
 
 HABIT_SUGGESTIONS_PROMPT = """Sen kullanıcının kişisel asistanısın. SADECE ALIŞKANLIK ÖNERİLERİ üret.
@@ -552,6 +555,7 @@ KURALLAR:
 - SUGGESTION gövdesine "Açıklama/Description" yazma; gerçek başlık yaz
 - Metadata: name, habitType, category, targetValue, targetUnit, frequency, notes
 - Mevcut bir habit kaydını iyileştirmek gerekirse EDIT tag'i kullan (opsiyonel)
+- Yeni öğrendiğin kalıcı bir kullanıcı bilgisi varsa MEMORY tag'i ekle (opsiyonel)
 """
 
 NOTE_SUGGESTIONS_PROMPT = """Sen kullanıcının kişisel asistanısın. SADECE NOT/ÖNERİ KOLEKSİYONU önerileri üret.
@@ -580,6 +584,7 @@ KURALLAR:
 - ZORUNLU DEĞİL - uygun değilse hiç önerme
 - SUGGESTION gövdesine "Açıklama/Description" yazma; gerçek başlık yaz
 - Metadata: title, date, category, collectionType (opsiyonel), notes
+- Yeni öğrendiğin kalıcı bir kullanıcı bilgisi varsa MEMORY tag'i ekle (opsiyonel)
 """
 
 # Fitness Coach System Prompt
@@ -928,6 +933,11 @@ def _normalize_suggestion(
         if field and new_value:
             base_title = f"{target_type}: {field} -> {new_value}"
         metadata["title"] = base_title
+    # Clean placeholder values from critical metadata fields
+    for key in ["content", "title", "name", "taskTitle", "eventTitle"]:
+        if key in metadata and _is_placeholder_description(str(metadata[key])):
+            metadata[key] = description
+
     if description and "content" not in metadata:
         metadata["content"] = description
 
@@ -2505,7 +2515,7 @@ async def _generate_daily_suggestions_for_user(
     message = (
         f"Hedef tarih: {resolved_date}.\n"
         f"include_general: {'true' if include_general else 'false'}.\n"
-        "Lütfen bu kurala uy ve sadece SUGGESTION tag'larıyla yanıt ver."
+        "Lütfen bu kurala uy ve sadece SUGGESTION, MEMORY ve gerekirse EDIT tag'larıyla yanıt ver."
     )
 
     service = get_gemini_service()

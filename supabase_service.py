@@ -565,6 +565,10 @@ class SupabaseService:
         if "sleepEntries" in data:
             self._save_sleep_entries(user_id, data["sleepEntries"])
 
+        # External Calendar Events (device calendars)
+        if "externalCalendarEvents" in data:
+            self._save_external_calendar_events(user_id, data["externalCalendarEvents"])
+
         # Meal Entries
         if "mealEntries" in data:
             self._save_meal_entries(user_id, data["mealEntries"])
@@ -680,6 +684,13 @@ class SupabaseService:
                     description = fallback
                 else:
                     description = "AI onerisi"
+            # Clean placeholder values from critical metadata fields
+            placeholders_set = {"aciklama", "description", "desc", "icerik", "content", "metin"}
+            for key in ["content", "title", "name", "taskTitle", "eventTitle"]:
+                val = metadata.get(key)
+                if val and normalize_placeholder(str(val)) in placeholders_set:
+                    metadata[key] = description
+
             if target_date:
                 metadata.setdefault("date", target_date)
                 metadata.setdefault("forDate", target_date)
@@ -900,6 +911,49 @@ class SupabaseService:
 
         return len(rows)
 
+    def get_ai_memories(
+        self,
+        user_id: str,
+        category: Optional[str] = None,
+        limit: int = 50
+    ) -> List[Dict[str, Any]]:
+        """AI hafızalarını opsiyonel kategori filtresiyle getirir."""
+        if not self.client:
+            return []
+
+        try:
+            safe_limit = int(limit)
+        except (TypeError, ValueError):
+            safe_limit = 50
+
+        safe_limit = max(1, min(safe_limit, 500))
+
+        try:
+            query = self.client.table("ai_memory_items") \
+                .select("*") \
+                .eq("user_id", user_id)
+
+            if category:
+                query = query.eq("category", category)
+
+            response = query \
+                .order("timestamp", desc=True) \
+                .limit(safe_limit) \
+                .execute()
+
+            return [
+                {
+                    "id": row.get("id"),
+                    "content": row.get("content", ""),
+                    "category": row.get("category", "general"),
+                    "timestamp": row.get("timestamp")
+                }
+                for row in (response.data or [])
+            ]
+        except Exception as e:
+            print(f"Error getting AI memories: {str(e)}")
+            return []
+
     def _save_fund_investments(self, user_id: str, investments: List[Dict]) -> None:
         """Fon yatırımlarını kaydet"""
         rows = [
@@ -1084,6 +1138,42 @@ class SupabaseService:
         if rows:
             self.client.table("sleep_entries").upsert(rows, on_conflict="user_id,date").execute()
             self._remove_duplicates("sleep_entries", ["date"], user_id)
+
+    def _save_external_calendar_events(self, user_id: str, events: List[Dict]) -> None:
+        """Telefon takviminden gelen harici etkinlikleri kaydet"""
+        latest_by_id: Dict[str, Dict] = {}
+        for event in events:
+            event_id = str(event.get("id", "")).strip()
+            if not event_id:
+                continue
+            latest_by_id[event_id] = event
+
+        rows = []
+        for event in latest_by_id.values():
+            start_date = event.get("startDate") or event.get("start_date")
+            end_date = event.get("endDate") or event.get("end_date")
+            if not start_date or not end_date:
+                continue
+
+            rows.append(
+                {
+                    "id": str(event.get("id", "")).strip(),
+                    "user_id": user_id,
+                    "title": event.get("title", ""),
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "is_all_day": bool(event.get("isAllDay", event.get("is_all_day", False))),
+                    "calendar_title": event.get("calendarTitle", event.get("calendar_title", "")),
+                    "location": event.get("location", ""),
+                    "notes": event.get("notes", "")
+                }
+            )
+
+        if rows:
+            self.client.table("external_calendar_events").upsert(
+                rows,
+                on_conflict="user_id,id"
+            ).execute()
 
     def _save_meal_entries(self, user_id: str, entries: List[Dict]) -> None:
         """Yemek kayıtlarını kaydet"""
@@ -1572,6 +1662,26 @@ class SupabaseService:
                 "notes": row.get("notes", "")
             }
             for row in (sleep_entries.data or [])
+        ]
+
+        # External Calendar Events (device calendars)
+        external_calendar_events = self.client.table("external_calendar_events") \
+            .select("*") \
+            .eq("user_id", user_id) \
+            .order("start_date", desc=False) \
+            .execute()
+        backup_data["externalCalendarEvents"] = [
+            {
+                "id": row["id"],
+                "title": row.get("title", ""),
+                "startDate": row.get("start_date"),
+                "endDate": row.get("end_date"),
+                "isAllDay": row.get("is_all_day", False),
+                "calendarTitle": row.get("calendar_title", ""),
+                "location": row.get("location", ""),
+                "notes": row.get("notes", "")
+            }
+            for row in (external_calendar_events.data or [])
         ]
 
         # Meal Entries
