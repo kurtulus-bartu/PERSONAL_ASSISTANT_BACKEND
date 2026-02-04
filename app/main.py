@@ -2016,8 +2016,7 @@ async def cron_hourly_check():
                     )
                     processed_count += 1
 
-                # Send weekly summary emails based on fitness coaching cadence.
-                # Must run before weekly coaching creation, otherwise "previous coaching + 1 week" condition is masked.
+                # Send summary emails once per day.
                 try:
                     await check_and_send_daily_emails(user_id)
                 except Exception as email_error:
@@ -2454,31 +2453,11 @@ def _map_meal_for_email(row: Dict[str, Any]) -> Dict[str, Any]:
 
 async def check_and_send_daily_emails(user_id: str):
     """
-    Send summary emails using weekly cadence tied to fitness coaching.
-    Rule:
-    - Send only when at least 7 days passed since the previous fitness coaching suggestion.
-    - Send at most once for that coaching window.
+    Send summary emails once per day.
     """
     try:
-        now = datetime.now(timezone.utc)
-
-        # Weekly cadence anchor: previous fitness coaching suggestion week start.
-        latest_coaching = supabase_service.get_latest_fitness_coaching(user_id)
-        if not latest_coaching:
-            return
-
-        coaching_week_start = _parse_iso_datetime(latest_coaching.get("week_start_date"))
-        if not coaching_week_start:
-            return
-        if coaching_week_start.tzinfo is None:
-            coaching_week_start = coaching_week_start.replace(tzinfo=timezone.utc)
-
-        earliest_send_at = coaching_week_start + timedelta(days=7)
-        if now < earliest_send_at:
-            return
-
-        last_sent_at = supabase_service.get_daily_summary_last_sent_at(user_id)
-        if last_sent_at and last_sent_at >= earliest_send_at:
+        # Check if already sent today
+        if supabase_service.was_daily_summary_sent_today(user_id):
             return
 
         settings = supabase_service.get_user_email_settings(user_id) or {}
