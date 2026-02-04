@@ -18,29 +18,20 @@ services:
         sync: false
       - key: ENVIRONMENT
         value: production
+      - key: AI_SUGGESTION_DAYS_PER_RUN
+        value: 7
+      - key: HOURLY_CRON_MIN_INTERVAL_SECONDS
+        value: 3300
 
   - type: cron
-    name: ai-suggestions-hourly
+    name: app-cron-single-ping
     env: python
     region: frankfurt
     plan: free
     branch: main
-    schedule: "0 * * * *"  # Every hour at minute 0
+    schedule: "*/5 * * * *"  # Single ping every 5 minutes
     buildCommand: pip install --upgrade pip && pip install -r requirements.txt
     command: curl -X POST https://personal-assistant-backend.onrender.com/api/cron/hourly-check
-    envVars:
-      - key: PYTHON_VERSION
-        value: 3.11.9
-
-  - type: cron
-    name: fitness-coach-weekly
-    env: python
-    region: frankfurt
-    plan: free
-    branch: main
-    schedule: "0 6 * * 1"  # Every Monday at 06:00
-    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
-    command: curl -X POST https://personal-assistant-backend.onrender.com/api/cron/weekly-fitness-coach
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9

@@ -59,6 +59,12 @@ app.add_middleware(
 tefas_crawler = TEFASCrawler()
 supabase_service = SupabaseService(tefas_crawler=tefas_crawler)
 
+# Cron protection: avoid overlapping runs and too-frequent calls (e.g. 5-min pings).
+HOURLY_CRON_MIN_INTERVAL_SECONDS = max(int(os.getenv("HOURLY_CRON_MIN_INTERVAL_SECONDS", "3300")), 0)
+AI_SUGGESTION_DAYS_PER_RUN = max(int(os.getenv("AI_SUGGESTION_DAYS_PER_RUN", "7")), 1)
+_hourly_cron_last_started_at: Optional[datetime] = None
+_hourly_cron_is_running: bool = False
+
 
 def _fallback_units(investment_amount: float, purchase_price: float, units: Optional[float]) -> float:
     if purchase_price > 0:
@@ -1909,13 +1915,60 @@ async def send_daily_summary(request: DailySummaryRequest):
 @app.post("/api/cron/hourly-check")
 async def cron_hourly_check():
     """
-    CronJob endpoint - Called every hour by Render CronJob
-    - Health check ping runs every time (unchanged)
+    CronJob endpoint - Can be pinged frequently (e.g. every 5 minutes)
+    - Protected against overlapping executions
+    - Protected against too-frequent triggers (e.g. every 5 minutes)
+    - Heavy jobs only run between minute 00 and 05 of each hour
     - AI suggestion generation has 1-hour cooldown per user
-    - Only generates suggestions if 1+ hour has passed since last suggestion
+    - Generates suggestions whenever 1+ hour has passed since last suggestion
     - Generates AI suggestions for all users (meals, tasks, events, notes)
     - Learns from user data and stores memories
     """
+    global _hourly_cron_last_started_at, _hourly_cron_is_running
+
+    now = datetime.now(timezone.utc)
+    run_window = now.minute <= 5
+
+    if not run_window:
+        return {
+            "success": True,
+            "skipped": True,
+            "reason": "outside_run_window",
+            "run_window": False,
+            "current_minute": now.minute,
+            "window": "00-05",
+            "timestamp": now.isoformat()
+        }
+
+    if _hourly_cron_is_running:
+        return {
+            "success": True,
+            "skipped": True,
+            "reason": "hourly_cron_already_running",
+            "run_window": run_window,
+            "started_at": _hourly_cron_last_started_at.isoformat() if _hourly_cron_last_started_at else None,
+            "timestamp": now.isoformat()
+        }
+
+    if _hourly_cron_last_started_at:
+        elapsed = (now - _hourly_cron_last_started_at).total_seconds()
+        if elapsed < HOURLY_CRON_MIN_INTERVAL_SECONDS:
+            return {
+                "success": True,
+                "skipped": True,
+                "reason": "hourly_cron_rate_limited",
+                "run_window": run_window,
+                "elapsed_seconds": int(elapsed),
+                "min_interval_seconds": HOURLY_CRON_MIN_INTERVAL_SECONDS,
+                "next_allowed_at": (
+                    _hourly_cron_last_started_at + timedelta(seconds=HOURLY_CRON_MIN_INTERVAL_SECONDS)
+                ).isoformat(),
+                "timestamp": now.isoformat()
+            }
+
+    _hourly_cron_is_running = True
+    _hourly_cron_last_started_at = now
+
     try:
         # Get all unique user IDs from database
         all_user_ids = supabase_service.get_all_user_ids()
@@ -1923,10 +1976,8 @@ async def cron_hourly_check():
         processed_count = 0
         skipped_count = 0
         errors = []
-        # Generate suggestions for the upcoming week (starting today)
-        now = datetime.now(timezone.utc)
+        # Generate suggestions from today onward, limited by AI_SUGGESTION_DAYS_PER_RUN.
         start_date = now.date().isoformat()
-        run_window = now.minute <= 5
 
         for user_id in all_user_ids:
             try:
@@ -1943,43 +1994,40 @@ async def cron_hourly_check():
                 except Exception as portfolio_error:
                     print(f"Portfolio snapshot error for user {user_id}: {portfolio_error}")
 
-                if run_window:
-                    # Check if user had AI suggestion in the last hour
-                    last_suggestion_time = supabase_service.get_last_ai_suggestion_time(user_id)
-                    should_generate = True
+                # Check if user had AI suggestion in the last hour
+                last_suggestion_time = supabase_service.get_last_ai_suggestion_time(user_id)
+                should_generate = True
 
-                    if last_suggestion_time:
-                        time_since_last = now - last_suggestion_time
-                        # Skip if less than 1 hour has passed
-                        if time_since_last.total_seconds() < 3600:  # 3600 seconds = 1 hour
-                            skipped_count += 1
-                            should_generate = False
+                if last_suggestion_time:
+                    time_since_last = now - last_suggestion_time
+                    # Skip if less than 1 hour has passed
+                    if time_since_last.total_seconds() < 3600:  # 3600 seconds = 1 hour
+                        skipped_count += 1
+                        should_generate = False
 
-                    if should_generate:
-                        # Generate AI suggestions for the full week
-                        await generate_weekly_suggestions_for_user(
-                            user_id=user_id,
-                            start_date=start_date,
-                            days=7,
-                            include_general=True,  # Include all types: meals, tasks, events, notes, habits
-                            force=False  # Skip if suggestions already exist for a date
-                        )
+                if should_generate:
+                    # Generate AI suggestions with configurable day span to keep request runtime bounded.
+                    await generate_weekly_suggestions_for_user(
+                        user_id=user_id,
+                        start_date=start_date,
+                        days=AI_SUGGESTION_DAYS_PER_RUN,
+                        include_general=True,  # Include all types: meals, tasks, events, notes, habits
+                        force=False  # Skip if suggestions already exist for a date
+                    )
+                    processed_count += 1
 
-                        processed_count += 1
+                # Send weekly summary emails based on fitness coaching cadence.
+                # Must run before weekly coaching creation, otherwise "previous coaching + 1 week" condition is masked.
+                try:
+                    await check_and_send_daily_emails(user_id)
+                except Exception as email_error:
+                    print(f"Email error for user {user_id}: {str(email_error)}")
 
-                    # Ensure at least one fitness coaching session exists for current week
-                    try:
-                        await ensure_weekly_fitness_coaching_for_user(user_id, reference_datetime=now)
-                    except Exception as coaching_error:
-                        print(f"Fitness coaching check error for user {user_id}: {str(coaching_error)}")
-
-                    # Send daily summary emails (hourly cron, only if not sent today)
-                    try:
-                        await check_and_send_daily_emails(user_id)
-                    except Exception as email_error:
-                        print(f"Email error for user {user_id}: {str(email_error)}")
-                else:
-                    skipped_count += 1
+                # Ensure at least one fitness coaching session exists for current week
+                try:
+                    await ensure_weekly_fitness_coaching_for_user(user_id, reference_datetime=now)
+                except Exception as coaching_error:
+                    print(f"Fitness coaching check error for user {user_id}: {str(coaching_error)}")
 
             except Exception as e:
                 errors.append({
@@ -1994,11 +2042,14 @@ async def cron_hourly_check():
             "total_users": len(all_user_ids),
             "start_date": start_date,
             "run_window": run_window,
+            "days_per_run": AI_SUGGESTION_DAYS_PER_RUN,
             "errors": errors
         }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        _hourly_cron_is_running = False
 
 
 # Keep old endpoint for backward compatibility
@@ -2402,10 +2453,32 @@ def _map_meal_for_email(row: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def check_and_send_daily_emails(user_id: str):
-    """Send daily summary emails (friends + personal) once per day via hourly cron."""
+    """
+    Send summary emails using weekly cadence tied to fitness coaching.
+    Rule:
+    - Send only when at least 7 days passed since the previous fitness coaching suggestion.
+    - Send at most once for that coaching window.
+    """
     try:
-        # Check if already sent today
-        if supabase_service.was_daily_summary_sent_today(user_id):
+        now = datetime.now(timezone.utc)
+
+        # Weekly cadence anchor: previous fitness coaching suggestion week start.
+        latest_coaching = supabase_service.get_latest_fitness_coaching(user_id)
+        if not latest_coaching:
+            return
+
+        coaching_week_start = _parse_iso_datetime(latest_coaching.get("week_start_date"))
+        if not coaching_week_start:
+            return
+        if coaching_week_start.tzinfo is None:
+            coaching_week_start = coaching_week_start.replace(tzinfo=timezone.utc)
+
+        earliest_send_at = coaching_week_start + timedelta(days=7)
+        if now < earliest_send_at:
+            return
+
+        last_sent_at = supabase_service.get_daily_summary_last_sent_at(user_id)
+        if last_sent_at and last_sent_at >= earliest_send_at:
             return
 
         settings = supabase_service.get_user_email_settings(user_id) or {}

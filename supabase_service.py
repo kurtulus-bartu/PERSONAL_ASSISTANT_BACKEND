@@ -1881,24 +1881,39 @@ class SupabaseService:
             print(f"Error getting user friends: {str(e)}")
             return []
 
-    def was_daily_summary_sent_today(self, user_id: str) -> bool:
-        """Check if daily summary email was sent today"""
+    def get_daily_summary_last_sent_at(self, user_id: str) -> Optional[datetime]:
+        """Return last summary mail sent timestamp for user, if available."""
         if not self.client:
-            return False
+            return None
 
         try:
-            today = datetime.now(timezone.utc).date()
             response = self.client.table("daily_summary_email_state") \
                 .select("last_sent_at") \
                 .eq("user_id", user_id) \
                 .limit(1) \
                 .execute()
             if not response.data:
+                return None
+
+            raw = response.data[0].get("last_sent_at")
+            if not raw:
+                return None
+
+            parsed = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed
+        except Exception as e:
+            print(f"Error getting last daily summary timestamp: {str(e)}")
+            return None
+
+    def was_daily_summary_sent_today(self, user_id: str) -> bool:
+        """Check if daily summary email was sent today"""
+        try:
+            last_sent_dt = self.get_daily_summary_last_sent_at(user_id)
+            if not last_sent_dt:
                 return False
-            last_sent = response.data[0].get("last_sent_at")
-            if not last_sent:
-                return False
-            last_sent_dt = datetime.fromisoformat(last_sent.replace("Z", "+00:00"))
+            today = datetime.now(timezone.utc).date()
             return last_sent_dt.date() == today
         except Exception as e:
             print(f"Error checking daily summary status: {str(e)}")
