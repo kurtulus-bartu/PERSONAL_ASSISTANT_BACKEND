@@ -159,6 +159,36 @@ class EnhancedGeminiService:
 
         return clean_response, conversation_history, suggestions, memories
 
+    def generate_response(
+        self,
+        message: str,
+        context: Optional[Any] = None,
+        system_prompt: Optional[str] = None
+    ) -> str:
+        """
+        Backward-compatible wrapper used by existing endpoints.
+        """
+        prompt_parts: List[str] = []
+
+        if system_prompt:
+            prompt_parts.append(system_prompt)
+
+        if context not in (None, ""):
+            if isinstance(context, str):
+                context_text = context
+            else:
+                context_text = json.dumps(context, ensure_ascii=False)
+            prompt_parts.append(f"\n\nKONTEXT:\n{context_text}")
+
+        prompt_parts.append(f"\n\nKULLANICI MESAJI:\n{message}")
+        prompt = "\n".join(prompt_parts).strip()
+
+        try:
+            response = self.model.generate_content(prompt)
+            return response.text or ""
+        except Exception as e:
+            return f"Üzgünüm, bir hata oluştu: {str(e)}"
+
     def _build_prompt(
         self,
         user_message: str,
