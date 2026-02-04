@@ -553,6 +553,10 @@ class SupabaseService:
         if "notes" in data:
             self._save_notes(user_id, data["notes"])
 
+        # Collection Entries
+        if "collectionEntries" in data:
+            self._save_collection_entries(user_id, data["collectionEntries"])
+
         # Pomodoro Sessions
         if "pomodoroSessions" in data:
             self._save_pomodoro_sessions(user_id, data["pomodoroSessions"])
@@ -1079,6 +1083,27 @@ class SupabaseService:
         # TODO: Implement note saving
         pass
 
+    def _save_collection_entries(self, user_id: str, entries: List[Dict]) -> None:
+        """Koleksiyon kayıtlarını kaydet"""
+        rows = []
+        for entry in entries:
+            entry_id = entry.get("id")
+            if not entry_id:
+                continue
+            rows.append({
+                "id": entry_id,
+                "user_id": user_id,
+                "title": entry.get("title", ""),
+                "notes": entry.get("notes", ""),
+                "category": entry.get("category", ""),
+                "type": entry.get("type", "Diğer"),
+                "is_done": bool(entry.get("isDone", False)),
+                "entry_date": entry.get("date")
+            })
+
+        if rows:
+            self.client.table("collection_entries").upsert(rows, on_conflict="id").execute()
+
     def _save_pomodoro_sessions(self, user_id: str, sessions: List[Dict]) -> None:
         """Pomodoro oturumlarını kaydet"""
         # TODO: Implement pomodoro saving
@@ -1474,6 +1499,23 @@ class SupabaseService:
             for row in (notes_response.data or [])
         ]
 
+        collection_response = self.client.table("collection_entries") \
+            .select("*") \
+            .eq("user_id", user_id) \
+            .execute()
+        backup_data["collectionEntries"] = [
+            {
+                "id": row["id"],
+                "title": row.get("title", ""),
+                "notes": row.get("notes", ""),
+                "category": row.get("category", ""),
+                "type": row.get("type", "Diğer"),
+                "isDone": row.get("is_done", False),
+                "date": row.get("entry_date")
+            }
+            for row in (collection_response.data or [])
+        ]
+
         # AI Memories (last 200)
         ai_memories_response = self.client.table("ai_memory_items") \
             .select("*") \
@@ -1809,7 +1851,7 @@ class SupabaseService:
             return []
 
         user_ids = set()
-        tables = ["tasks", "notes", "meal_entries", "health_entries"]
+        tables = ["tasks", "notes", "collection_entries", "meal_entries", "health_entries"]
 
         for table in tables:
             try:
@@ -1838,6 +1880,10 @@ class SupabaseService:
             # Get notes
             notes_response = self.client.table("notes").select("*").eq("user_id", user_id).execute()
             data["notes"] = notes_response.data
+
+            # Get collection entries
+            collection_response = self.client.table("collection_entries").select("*").eq("user_id", user_id).execute()
+            data["collection_entries"] = collection_response.data
 
             # Get health entries
             health_response = self.client.table("health_entries").select("*").eq("user_id", user_id).execute()

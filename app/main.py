@@ -250,7 +250,8 @@ ROL VE AMAÇ:
    - Metadata: mealType, date, time, calories (toplam), title, menu (her öğede kalori), notes
 
 2. **task** - Görev önerileri (yapılacaklar, hatırlatmalar)
-   - Metadata: title, date, time, durationMinutes, notes, priority
+   - Metadata: title, date, notes, priority
+   - Task = zamansız yapılacak; start/end saat verme
 
 3. **event** - Etkinlik önerileri (spor, sosyal aktiviteler, hobiler)
    - Metadata: title, date, time, durationMinutes, notes, location
@@ -258,7 +259,10 @@ ROL VE AMAÇ:
 4. **note** - Not önerileri (fikirler, öğrenme, hatırlatmalar)
    - Metadata: title, date, category, notes
 
-5. **habit** - Alışkanlık önerileri (yeni alışkanlık ekleme önerileri)
+5. **collection** - Koleksiyon önerileri (kitap, film, dizi, podcast, kurs, mekan, oyun)
+   - Metadata: title, date, category, collectionType, notes
+
+6. **habit** - Alışkanlık önerileri (yeni alışkanlık ekleme önerileri)
    - Metadata: name, habitType, category, targetValue, targetUnit, frequency, notes
    - habitType: yes_no, numeric, duration, checklist
    - frequency: daily, weekly, custom
@@ -277,7 +281,7 @@ ROL VE AMAÇ:
   * meal (yemek - todays_meals'de olmayan öğünler için)
   * task (görev - zamanlanmamış yapılacaklar)
   * event (aktiviteler - todays_events'te BOŞ olan zaman dilimlerinde)
-  * note (notlar - öğrenme ve hatırlatmalar)
+  * note/collection (öğrenme, hatırlatma, kitap/film vb öneri)
 
 ÖNERİ DETAYLARı:
 - **meal**:
@@ -291,6 +295,7 @@ ROL VE AMAÇ:
   * Zamanlanmamış yapılacaklar (zamansız görevler)
   * Yarın için planlama, hatırlatmalar
   * pending_tasks listesindeki tamamlanmamış görevleri dikkate al
+  * Saat aralığı verme (start/end varsa bu EVENT olmalı)
 
 - **event**:
   * **ÇOK ÖNEMLİ**: todays_events listesini kontrol et
@@ -303,10 +308,16 @@ ROL VE AMAÇ:
   * Öğrenme notları, fikir geliştirme, günlük tutma
   * Zaman bağımsız öneriler
 
+- **collection**:
+  * Kitap/film/dizi/podcast/kurs/mekan/oyun gibi gerçekten değer katacak öneriler üret
+  * collectionType değeri mutlaka ver (ör. book, movie, series, podcast, course, place, game)
+  * Aynı içerik veya çok benzer içerikleri tekrar önerme
+
 - **habit**:
   * existing_habits listesini kontrol et - zaten eklenmiş alışkanlığı TEKRAR ÖNERME
-  * Kullanıcının hedeflerine ve yaşam tarzına uygun alışkanlıklar öner
-  * Başlangıç için kolay, sürdürülebilir alışkanlıklar tercih et
+  * Çok az ama etkisi yüksek öneri ver (en fazla 1 adet)
+  * Kullanıcının hedeflerine ve yaşam tarzına gerçekten fark yaratacak alışkanlık öner
+  * Başlangıç için kolay, sürdürülebilir ve ölçülebilir alışkanlıklar tercih et
   * Alışkanlık tipleri: yes_no (basit tamamlandı/tamamlanmadı), numeric (sayısal hedef), duration (süre bazlı), checklist (kontrol listesi)
   * Sıklık: daily (her gün), weekly (haftanın belirli günleri), custom (her N günde bir)
   * Örnekler: Su içme, meditasyon, egzersiz, okuma, uyku düzeni
@@ -326,9 +337,10 @@ YENİ HAFIZA EKLEVERİLERİ:
 - SADECE SUGGESTION, MEMORY ve gerekirse EDIT tagları yaz. Başka metin ekleme.
 - Format örnekleri:
   <SUGGESTION type="meal">Izgara tavuk ve sebze [metadata:mealType=Akşam,date=2026-01-11,time=19:00,calories=600,title=Izgara tavuk ve sebze,menu=Izgara tavuk 350 kcal|Bulgur pilavı 150 kcal|Mevsim salata 100 kcal,notes=Protein ağırlıklı]</SUGGESTION>
-  <SUGGESTION type="task">Haftalık plan yap [metadata:title=Haftalık plan yap,date=2026-01-11,time=20:00,durationMinutes=30,priority=medium]</SUGGESTION>
+  <SUGGESTION type="task">Haftalık plan yap [metadata:title=Haftalık plan yap,date=2026-01-11,priority=medium,notes=Pazar akşamı 10 dk ayır]</SUGGESTION>
   <SUGGESTION type="event">30 dakika yürüyüş [metadata:title=30 dakika yürüyüş,date=2026-01-11,time=17:30,durationMinutes=30,location=Park]</SUGGESTION>
   <SUGGESTION type="note">Bugünün öğrendikleri [metadata:title=Bugünün öğrendikleri,date=2026-01-11,category=Öğrenme]</SUGGESTION>
+  <SUGGESTION type="collection">Atomic Habits oku [metadata:title=Atomic Habits,date=2026-01-11,category=Kişisel Gelişim,collectionType=book,notes=Haftaya başlamak için 20 sayfa]</SUGGESTION>
   <SUGGESTION type="habit">Günde 8 bardak su iç [metadata:name=Günde 8 bardak su iç,habitType=numeric,category=Sağlık,targetValue=8,targetUnit=bardak,frequency=daily,notes=Hidrasyonu artır]</SUGGESTION>
   <MEMORY category="preference">Kullanıcı akşamları hafif yemek tercih ediyor</MEMORY>
 
@@ -339,7 +351,8 @@ KURALLAR - ÇOK ÖNEMLİ:
 - **HEDEF GÜN**: date her zaman target_date olmalı
 - **ÇAKIŞMA YASAK**: todays_events ile çakışan saatlerde event ÖNERME (takvim kontrolü yap)
 - **TEKRAR YASAK**: todays_meals'de olan öğünü TEKRAR önerme
-- **TIME EKLE**: Her öneride mutlaka time belirt (meal, task, event için)
+- **TIME EKLE**: Sadece meal ve event önerilerinde time belirt
+- **TASK VS EVENT**: start/end saat aralığı içeren her öneri EVENT olmalı, TASK olmamalı
 - **BOŞ ZAMAN BUL**: event önerirken todays_events arasındaki boşlukları kullan
 - **AÇIKLAMA PLACEHOLDER YASAK**: SUGGESTION gövdesine "Açıklama/Description" yazma, gerçek başlık yaz
 - Metadata değerlerinde virgül kullanma (gerekirse tire veya ve kullan). Menüde **|** kullan.
@@ -378,7 +391,7 @@ DÜZENLEME YETKİSİ (EDIT CAPABILITY):
 Mevcut görev, etkinlik veya yemek kayıtlarını düzenleyebilirsin. Kullanıcının alışkanlıklarını öğren ve ona göre akıllı değişiklikler öner.
 
 DÜZENLEME FORMAT:
-<EDIT targetType="task|event|meal" targetId="uuid">
+<EDIT targetType="task|event|meal|note|collection|habit" targetId="uuid">
 Field: fieldName
 NewValue: newValue
 Reason: Neden bu değişiklik önerildi
@@ -388,6 +401,9 @@ DÜZENLENEBİLİR ALANLAR:
 - task: title, startTime, endTime, notes, priority, completed
 - event: title, startTime, endTime, location, notes
 - meal: mealType, calories, description, notes
+- note: title, content, category
+- collection: title, notes, category, collectionType, isDone
+- habit: name, frequency, category, notes
 
 DÜZENLEME ÖRNEKLERİ:
 <EDIT targetType="event" targetId="123e4567-e89b-12d3-a456-426614174000">
@@ -541,6 +557,8 @@ HEDEF TARİH: {target_date}
 MEVCUT ALIŞKANLIKLAR: {existing_habits}
 - Zaten eklenmiş alışkanlıkları TEKRAR ÖNERME
 - Başlangıç için kolay ve sürdürülebilir alışkanlıklar öner
+- Çok az ama etkisi yüksek öneri ver (maksimum 1 adet)
+- Kullanıcının hayatında gerçek fark yaratmayacak düşük etkili öneriler verme
 
 HAFIZA: {ai_memories}
 - Kullanıcının hedeflerini ve tercihlerini dikkate al
@@ -556,7 +574,7 @@ Reason: Gerçekçi sürdürülebilirlik için
 </EDIT>
 
 KURALLAR:
-- En fazla 2 alışkanlık öner
+- En fazla 1 alışkanlık öner
 - ZORUNLU DEĞİL - uygun değilse hiç önerme
 - SUGGESTION gövdesine "Açıklama/Description" yazma; gerçek başlık yaz
 - Metadata: name, habitType, category, targetValue, targetUnit, frequency, notes
@@ -571,25 +589,29 @@ HEDEF TARİH: {target_date}
 MEVCUT NOTLAR: {recent_notes}
 - Benzer önerileri tekrar etme
 
+MEVCUT KOLEKSİYONLAR: {existing_collections}
+- Koleksiyonda bulunan aynı/benzer içerikleri tekrar önerme
+
 HAFIZA: {ai_memories}
 - Kullanıcının ilgi alanlarına göre kitap, dizi, film, podcast, kurs, mekan gibi öneriler üretebilirsin
 
 FORMAT:
-<SUGGESTION type="note">
+<SUGGESTION type="collection">
 Atomik Alışkanlıklar kitabına başla [metadata:title=Atomik Alışkanlıklar kitabına başla,date=2026-01-23,category=Kitap,collectionType=book,notes=Her gün 20 sayfa oku]
 </SUGGESTION>
 
-<EDIT targetType="note" targetId="UUID_BURAYA">
+<EDIT targetType="collection" targetId="UUID_BURAYA">
 Field: title
 NewValue: Daha net başlık
 Reason: Not daha kolay bulunur
 </EDIT>
 
 KURALLAR:
-- En fazla 3 not/öneri üret
+- En fazla 3 not/koleksiyon önerisi üret
 - ZORUNLU DEĞİL - uygun değilse hiç önerme
 - SUGGESTION gövdesine "Açıklama/Description" yazma; gerçek başlık yaz
-- Metadata: title, date, category, collectionType (opsiyonel), notes
+- Tercihen `type="collection"` kullan; not fikriyse `type="note"` kullanılabilir
+- Metadata: title, date, category, collectionType, notes
 - Yeni öğrendiğin kalıcı bir kullanıcı bilgisi varsa MEMORY tag'i ekle (opsiyonel)
 """
 
@@ -876,7 +898,7 @@ def _normalize_suggestion(
     if not suggestion_type:
         return None
 
-    allowed_types = {"meal", "task", "event", "note", "habit", "general", "edit"}
+    allowed_types = {"meal", "task", "event", "note", "collection", "habit", "general", "edit"}
     if suggestion_type not in allowed_types:
         return None
 
@@ -898,7 +920,7 @@ def _normalize_suggestion(
         metadata["calories"] = metadata["calorie"]
 
     # Normalize date
-    if target_date and suggestion_type in {"meal", "task", "event", "note", "edit", "habit"}:
+    if target_date and suggestion_type in {"meal", "task", "event", "note", "collection", "edit", "habit"}:
         metadata["date"] = target_date
         metadata.setdefault("forDate", target_date)
 
@@ -909,6 +931,14 @@ def _normalize_suggestion(
                 metadata["time"] = _default_time_for_meal_type(metadata.get("mealType", ""))
             else:
                 metadata["time"] = "09:00"
+
+    # If a task carries explicit start/end timing, it should be handled as event.
+    if suggestion_type == "task":
+        has_start = _is_valid_time(metadata.get("startTime")) or _is_valid_time(metadata.get("time"))
+        has_end = _is_valid_time(metadata.get("endTime"))
+        has_duration = bool(re.search(r"\d+", str(metadata.get("durationMinutes", "")).strip()))
+        if has_start and (has_end or has_duration):
+            suggestion_type = "event"
 
     # Ensure meal metadata
     if suggestion_type == "meal":
@@ -930,9 +960,13 @@ def _normalize_suggestion(
     if suggestion_type == "task" and "durationMinutes" not in metadata:
         metadata["durationMinutes"] = "30"
 
-    # Defaults for note/habit
+    # Defaults for note/collection/habit
     if suggestion_type == "note" and "title" not in metadata:
         metadata["title"] = description[:60]
+    if suggestion_type == "collection":
+        metadata.setdefault("title", description[:80])
+        metadata.setdefault("collectionType", metadata.get("type", "book"))
+        metadata.setdefault("category", metadata.get("category", "Genel"))
     if suggestion_type == "habit" and "name" not in metadata:
         metadata["name"] = description[:60]
     if suggestion_type in {"task", "event"} and "title" not in metadata:
@@ -1018,6 +1052,48 @@ def _normalize_and_filter_suggestions(
     return filtered
 
 
+def _optimize_suggestions_before_user_review(
+    suggestions: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    """
+    Lightweight background refinement before suggestions are shown to the user.
+    This keeps payloads realistic and internally consistent.
+    """
+    optimized: List[Dict[str, Any]] = []
+    habit_count = 0
+
+    for raw in suggestions:
+        if not isinstance(raw, dict):
+            continue
+
+        item = dict(raw)
+        metadata = dict(item.get("metadata") or {})
+        suggestion_type = str(item.get("type") or "").strip().lower()
+
+        if suggestion_type == "note" and (
+            metadata.get("collectionType") or metadata.get("collection_type")
+        ):
+            suggestion_type = "collection"
+
+        if suggestion_type == "task":
+            has_start = _is_valid_time(metadata.get("startTime")) or _is_valid_time(metadata.get("time"))
+            has_end = _is_valid_time(metadata.get("endTime"))
+            has_duration = bool(re.search(r"\d+", str(metadata.get("durationMinutes", "")).strip()))
+            if has_start and (has_end or has_duration):
+                suggestion_type = "event"
+
+        if suggestion_type == "habit":
+            habit_count += 1
+            if habit_count > 1:
+                continue
+
+        item["type"] = suggestion_type
+        item["metadata"] = metadata
+        optimized.append(item)
+
+    return optimized
+
+
 def _build_edit_suggestion_payload(edit: Dict[str, Any]) -> Dict[str, Any]:
     target_type = str(edit.get("targetType") or edit.get("target_type") or "item").strip()
     field = str(edit.get("field") or "").strip()
@@ -1067,6 +1143,7 @@ def _build_daily_suggestions_context(
     workouts = backup_data.get("workoutEntries", [])
     tasks = backup_data.get("tasks", [])
     notes = backup_data.get("notes", [])
+    collections = backup_data.get("collectionEntries", [])
     ai_memories = backup_data.get("aiMemories", [])
     ai_suggestions = backup_data.get("aiSuggestions", [])
     habits = backup_data.get("habits", [])
@@ -1229,6 +1306,17 @@ def _build_daily_suggestions_context(
         for n in notes[-10:]
     ]
 
+    existing_collections = [
+        {
+            "title": c.get("title", ""),
+            "type": c.get("type", ""),
+            "category": c.get("category", ""),
+            "isDone": c.get("isDone", False),
+            "date": str(c.get("date", ""))[:10]
+        }
+        for c in collections[-30:]
+    ]
+
     # AI Memories (all)
     memories = [
         {
@@ -1326,6 +1414,7 @@ def _build_daily_suggestions_context(
         "week_events": week_events,
         "todays_meals": todays_meals,
         "recent_notes": recent_notes,
+        "existing_collections": existing_collections,
         "ai_memories": memories,
         "accepted_suggestions": accepted_suggestions,
         "pending_suggestions": pending_suggestions,
@@ -2195,6 +2284,33 @@ def calculate_weekly_fitness_metrics(workouts: list, week_start, week_end) -> di
     """Calculate weekly workout metrics"""
     from datetime import datetime
 
+    def to_int(value: Any, default: int = 0) -> int:
+        text = str(value or "").strip()
+        if not text:
+            return default
+        try:
+            return int(float(text))
+        except Exception:
+            pass
+        range_match = re.match(r"^\s*(\d+)\s*[-/]\s*(\d+)\s*$", text)
+        if range_match:
+            return int(round((int(range_match.group(1)) + int(range_match.group(2))) / 2))
+        digit_match = re.search(r"\d+", text)
+        return int(digit_match.group(0)) if digit_match else default
+
+    def to_float(value: Any, default: float = 0.0) -> float:
+        text = str(value or "").strip()
+        if not text:
+            return default
+        try:
+            return float(text)
+        except Exception:
+            pass
+        match = re.search(r"\d+(?:[.,]\d+)?", text)
+        if match:
+            return float(match.group(0).replace(",", "."))
+        return default
+
     total_volume = 0
     total_sets = 0
     total_reps = 0
@@ -2223,26 +2339,26 @@ def calculate_weekly_fitness_metrics(workouts: list, week_start, week_end) -> di
             set_details = exercise.get("setDetails", [])
             if set_details:
                 for set_detail in set_details:
-                    reps = set_detail.get("reps", 0)
-                    weight = set_detail.get("weight", 0)
+                    reps = to_int(set_detail.get("reps", 0))
+                    weight = to_float(set_detail.get("weight", 0))
                     total_volume += reps * weight
                     total_reps += reps
                     total_sets += 1
 
-                    rpe = set_detail.get("rpe", 0)
+                    rpe = to_float(set_detail.get("rpe", 0))
                     if rpe > 0:
                         rpe_sum += rpe
                         rpe_count += 1
             else:
                 # Fallback to basic fields
-                sets = exercise.get("sets", 0)
-                reps = exercise.get("reps", 0)
-                weight = exercise.get("weight", 0)
+                sets = to_int(exercise.get("sets", 0))
+                reps = to_int(exercise.get("reps", 0))
+                weight = to_float(exercise.get("weight", 0))
                 total_volume += sets * reps * weight
                 total_reps += sets * reps
                 total_sets += sets
 
-                rpe = exercise.get("rpe", 0)
+                rpe = to_float(exercise.get("rpe", 0))
                 if rpe > 0:
                     rpe_sum += rpe
                     rpe_count += 1
@@ -2266,6 +2382,26 @@ def calculate_weekly_fitness_metrics(workouts: list, week_start, week_end) -> di
 def parse_fitness_coaching_response(response_text: str) -> dict:
     """Parse AI coaching response into structured data"""
     import re
+
+    def parse_numeric_value(raw: str, default: int = 0) -> int:
+        value = str(raw or "").strip()
+        if not value:
+            return default
+        try:
+            return int(value)
+        except Exception:
+            pass
+
+        range_match = re.match(r"^\s*(\d+)\s*[-/]\s*(\d+)\s*$", value)
+        if range_match:
+            low = int(range_match.group(1))
+            high = int(range_match.group(2))
+            return max(int(round((low + high) / 2)), default)
+
+        digit_match = re.search(r"\d+", value)
+        if digit_match:
+            return int(digit_match.group(0))
+        return default
 
     result = {
         "weekly_summary": "",
@@ -2320,9 +2456,9 @@ def parse_fitness_coaching_response(response_text: str) -> dict:
                 for ex_match in re.finditer(exercise_pattern, exercises_content):
                     exercises.append({
                         "name": ex_match.group(1),
-                        "sets": int(ex_match.group(2)),
-                        "reps": int(ex_match.group(3)),
-                        "rest_seconds": int(ex_match.group(4)),
+                        "sets": parse_numeric_value(ex_match.group(2), default=1),
+                        "reps": parse_numeric_value(ex_match.group(3), default=1),
+                        "rest_seconds": parse_numeric_value(ex_match.group(4), default=60),
                         "notes": ex_match.group(5) or ""
                     })
 
@@ -2613,6 +2749,9 @@ async def _generate_daily_suggestions_for_user(
             if (suggestion.get("type") or "").lower() == "meal"
         ]
 
+    # Background refinement (before user approval), then normalize and dedupe.
+    suggestions = _optimize_suggestions_before_user_review(suggestions)
+
     # Normalize, enrich, and dedupe suggestions
     suggestions = _normalize_and_filter_suggestions(
         suggestions=suggestions,
@@ -2778,6 +2917,10 @@ async def _generate_daily_suggestions_phased(
         parsed = parse_suggestions_and_memories(habit_response or "")
         all_suggestions.extend(parsed.get("suggestions", []))
         all_memories.extend(parsed.get("memories", []))
+
+        edits = parse_edit_suggestions(habit_response or "")
+        for edit in edits:
+            all_suggestions.append(_build_edit_suggestion_payload(edit))
     except Exception as e:
         print(f"⚠️ Habit phase error: {str(e)}")
 
@@ -2788,6 +2931,7 @@ async def _generate_daily_suggestions_phased(
             context=context_json,
             system_prompt=NOTE_SUGGESTIONS_PROMPT.format(
                 recent_notes=context.get("recent_notes", []),
+                existing_collections=context.get("existing_collections", []),
                 ai_memories=context.get("ai_memories", []),
                 target_date=resolved_date
             )
@@ -2821,6 +2965,9 @@ async def _generate_daily_suggestions_phased(
             skipped=False,
             message=f"No suggestions generated. Saved {memory_count} memories."
         )
+
+    # Background refinement (before user approval), then normalize and dedupe.
+    all_suggestions = _optimize_suggestions_before_user_review(all_suggestions)
 
     # Normalize, enrich, and dedupe suggestions
     all_suggestions = _normalize_and_filter_suggestions(
