@@ -3,6 +3,7 @@ AI Capabilities and Data Request System
 Handles AI capability listing and data request processing
 """
 
+import re
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta, timezone
 from enum import Enum
