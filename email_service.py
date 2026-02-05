@@ -396,7 +396,11 @@ class EmailService:
         user_name: str,
         tasks: List[Dict[str, Any]],
         meals: List[Dict[str, Any]],
-        date: str = None
+        date: str = None,
+        health_data: Dict[str, Any] = None,
+        finance_data: Dict[str, Any] = None,
+        habits_data: List[Dict[str, Any]] = None,
+        daily_score: Dict[str, Any] = None
     ) -> bool:
         """
         Send personal daily summary email to user
@@ -407,6 +411,10 @@ class EmailService:
             tasks: List of tasks and events for today
             meals: List of meals for today
             date: Date string (defaults to today)
+            health_data: Health metrics (sleep, steps, calories, etc.)
+            finance_data: Finance data (investments, daily change)
+            habits_data: Today's habits with completion status
+            daily_score: Daily score breakdown
 
         Returns:
             True if email sent successfully, False otherwise
@@ -418,15 +426,19 @@ class EmailService:
         if date is None:
             date = datetime.now().strftime("%d.%m.%Y")
 
-        # Create email content
-        subject = f"📆 7 Günlük Özet - {date}"
+        # Create email content - now "Günlük Özet" instead of "7 Günlük Özet"
+        subject = f"☀️ Günlük Özet - {date}"
 
-        # Build HTML email body
+        # Build HTML email body with all widget data
         html_body = self._build_personal_summary_html(
             user_name=user_name,
             tasks=tasks,
             meals=meals,
-            date=date
+            date=date,
+            health_data=health_data,
+            finance_data=finance_data,
+            habits_data=habits_data,
+            daily_score=daily_score
         )
 
         # Send via Resend or SMTP
@@ -440,9 +452,57 @@ class EmailService:
         user_name: str,
         tasks: List[Dict[str, Any]],
         meals: List[Dict[str, Any]],
-        date: str
+        date: str,
+        health_data: Dict[str, Any] = None,
+        finance_data: Dict[str, Any] = None,
+        habits_data: List[Dict[str, Any]] = None,
+        daily_score: Dict[str, Any] = None
     ) -> str:
-        """Build personal summary HTML email body"""
+        """Build modern personal summary HTML email body with widget-inspired design"""
+
+        # Separate events and tasks
+        events = []
+        task_items = []
+        for item in tasks:
+            is_task = item.get("is_task", True)
+            if is_task:
+                task_items.append(item)
+            else:
+                events.append(item)
+
+        # Sort events by time
+        events.sort(key=lambda x: x.get("start_time", "") or "")
+
+        # Calculate stats
+        total_tasks = len(task_items)
+        total_events = len(events)
+        total_meals = len(meals)
+        total_calories = sum(m.get("calories", 0) for m in meals)
+
+        # Get health stats with defaults
+        health = health_data or {}
+        sleep_hours = health.get("sleep_hours", 0)
+        steps = health.get("steps", 0)
+        active_minutes = health.get("active_minutes", 0)
+        calories_burned = health.get("calories_burned", 0)
+
+        # Get finance stats with defaults
+        finance = finance_data or {}
+        total_invested = finance.get("total_invested", 0)
+        daily_change = finance.get("daily_change", 0)
+        daily_change_percent = finance.get("daily_change_percent", 0)
+
+        # Get habits with defaults
+        habits = habits_data or []
+        completed_habits = sum(1 for h in habits if h.get("completed", False))
+        total_habits = len(habits)
+
+        # Get daily score with defaults
+        score = daily_score or {}
+        total_points = score.get("total_points", 0)
+        task_points = score.get("task_points", 0)
+        pomodoro_points = score.get("pomodoro_points", 0)
+        health_points = score.get("health_points", 0)
 
         html = f"""
         <!DOCTYPE html>
@@ -451,190 +511,489 @@ class EmailService:
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <style>
+                * {{
+                    margin: 0;
+                    padding: 0;
+                    box-sizing: border-box;
+                }}
                 body {{
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-                    line-height: 1.6;
-                    color: #333;
-                    max-width: 600px;
-                    margin: 0 auto;
+                    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+                    line-height: 1.5;
+                    color: #1a1a1a;
+                    background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ec 100%);
                     padding: 20px;
-                    background-color: #f5f5f5;
                 }}
                 .container {{
-                    background-color: white;
-                    border-radius: 12px;
-                    padding: 30px;
-                    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+                    max-width: 600px;
+                    margin: 0 auto;
                 }}
                 .header {{
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    border-radius: 24px;
+                    padding: 32px 28px;
+                    margin-bottom: 16px;
+                    color: white;
                     text-align: center;
-                    padding-bottom: 20px;
-                    border-bottom: 2px solid #f0f0f0;
-                    margin-bottom: 30px;
+                    box-shadow: 0 8px 32px rgba(102, 126, 234, 0.3);
                 }}
-                .header h1 {{
-                    margin: 0;
-                    color: #2c3e50;
+                .header-greeting {{
                     font-size: 28px;
+                    font-weight: 700;
+                    margin-bottom: 8px;
+                    letter-spacing: -0.5px;
                 }}
-                .greeting {{
-                    font-size: 18px;
-                    color: #555;
-                    margin-top: 10px;
+                .header-date {{
+                    font-size: 15px;
+                    opacity: 0.9;
+                    font-weight: 500;
                 }}
-                .section {{
-                    margin: 25px 0;
+                .header-subtitle {{
+                    font-size: 14px;
+                    opacity: 0.8;
+                    margin-top: 12px;
                 }}
-                .section-title {{
-                    font-size: 20px;
+                .widget-grid {{
+                    display: grid;
+                    grid-template-columns: repeat(2, 1fr);
+                    gap: 12px;
+                    margin-bottom: 16px;
+                }}
+                .widget {{
+                    background: rgba(255, 255, 255, 0.85);
+                    backdrop-filter: blur(20px);
+                    -webkit-backdrop-filter: blur(20px);
+                    border-radius: 20px;
+                    padding: 20px;
+                    box-shadow: 0 4px 24px rgba(0,0,0,0.06);
+                    border: 1px solid rgba(255,255,255,0.8);
+                }}
+                .widget-wide {{
+                    grid-column: span 2;
+                }}
+                .widget-title {{
+                    font-size: 12px;
                     font-weight: 600;
-                    color: #2c3e50;
-                    margin-bottom: 15px;
-                    display: flex;
-                    align-items: center;
+                    color: #8e8e93;
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
+                    margin-bottom: 12px;
                 }}
-                .section-title .icon {{
-                    margin-right: 8px;
+                .widget-value {{
+                    font-size: 32px;
+                    font-weight: 700;
+                    color: #1a1a1a;
+                    letter-spacing: -1px;
+                }}
+                .widget-value-small {{
                     font-size: 24px;
                 }}
-                .item-list {{
-                    list-style: none;
-                    padding: 0;
-                    margin: 0;
+                .widget-subtitle {{
+                    font-size: 13px;
+                    color: #8e8e93;
+                    margin-top: 4px;
                 }}
-                .item {{
-                    background-color: #f8f9fa;
-                    border-left: 4px solid #3498db;
-                    padding: 15px;
-                    margin-bottom: 12px;
-                    border-radius: 6px;
+                .widget-icon {{
+                    font-size: 20px;
+                    margin-right: 8px;
                 }}
-                .item.task {{
-                    border-left-color: #3498db;
+                .stat-row {{
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    padding: 8px 0;
+                    border-bottom: 1px solid rgba(0,0,0,0.05);
                 }}
-                .item.event {{
-                    border-left-color: #9b59b6;
+                .stat-row:last-child {{
+                    border-bottom: none;
                 }}
-                .item.meal {{
-                    border-left-color: #e74c3c;
-                }}
-                .item-title {{
-                    font-weight: 600;
-                    font-size: 16px;
-                    color: #2c3e50;
-                    margin-bottom: 5px;
-                }}
-                .item-details {{
+                .stat-label {{
                     font-size: 14px;
                     color: #666;
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                }}
+                .stat-value {{
+                    font-size: 15px;
+                    font-weight: 600;
+                    color: #1a1a1a;
+                }}
+                .progress-bar {{
+                    height: 6px;
+                    background: rgba(0,0,0,0.08);
+                    border-radius: 3px;
+                    overflow: hidden;
+                    margin-top: 8px;
+                }}
+                .progress-fill {{
+                    height: 100%;
+                    border-radius: 3px;
+                    transition: width 0.3s ease;
+                }}
+                .progress-orange {{ background: linear-gradient(90deg, #ff9500, #ffcc00); }}
+                .progress-blue {{ background: linear-gradient(90deg, #007aff, #5ac8fa); }}
+                .progress-green {{ background: linear-gradient(90deg, #34c759, #30d158); }}
+                .progress-purple {{ background: linear-gradient(90deg, #af52de, #bf5af2); }}
+                .chip {{
+                    display: inline-flex;
+                    align-items: center;
+                    padding: 6px 12px;
+                    background: rgba(0,0,0,0.05);
+                    border-radius: 20px;
+                    font-size: 12px;
+                    font-weight: 600;
+                    margin-right: 8px;
+                    margin-bottom: 8px;
+                }}
+                .chip-green {{ background: rgba(52, 199, 89, 0.15); color: #248a3d; }}
+                .chip-blue {{ background: rgba(0, 122, 255, 0.15); color: #0066cc; }}
+                .chip-orange {{ background: rgba(255, 149, 0, 0.15); color: #c93400; }}
+                .chip-purple {{ background: rgba(175, 82, 222, 0.15); color: #8944ab; }}
+                .event-item {{
+                    display: flex;
+                    align-items: flex-start;
+                    padding: 14px 0;
+                    border-bottom: 1px solid rgba(0,0,0,0.05);
+                }}
+                .event-item:last-child {{
+                    border-bottom: none;
+                    padding-bottom: 0;
+                }}
+                .event-time {{
+                    min-width: 60px;
+                    font-size: 14px;
+                    font-weight: 600;
+                    color: #007aff;
+                }}
+                .event-content {{
+                    flex: 1;
+                }}
+                .event-title {{
+                    font-size: 15px;
+                    font-weight: 600;
+                    color: #1a1a1a;
+                    margin-bottom: 2px;
+                }}
+                .event-meta {{
+                    font-size: 13px;
+                    color: #8e8e93;
+                }}
+                .task-item {{
+                    display: flex;
+                    align-items: center;
+                    padding: 12px 0;
+                    border-bottom: 1px solid rgba(0,0,0,0.05);
+                }}
+                .task-item:last-child {{
+                    border-bottom: none;
+                    padding-bottom: 0;
+                }}
+                .task-checkbox {{
+                    width: 22px;
+                    height: 22px;
+                    border: 2px solid #007aff;
+                    border-radius: 6px;
+                    margin-right: 12px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 12px;
+                }}
+                .task-checkbox-done {{
+                    background: #34c759;
+                    border-color: #34c759;
+                    color: white;
+                }}
+                .task-title {{
+                    font-size: 15px;
+                    color: #1a1a1a;
+                    flex: 1;
+                }}
+                .meal-item {{
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    padding: 12px 0;
+                    border-bottom: 1px solid rgba(0,0,0,0.05);
+                }}
+                .meal-item:last-child {{
+                    border-bottom: none;
+                    padding-bottom: 0;
+                }}
+                .meal-type {{
+                    font-size: 14px;
+                    font-weight: 600;
+                    color: #ff9500;
+                    min-width: 80px;
+                }}
+                .meal-desc {{
+                    font-size: 14px;
+                    color: #1a1a1a;
+                    flex: 1;
+                    margin: 0 12px;
+                }}
+                .meal-calories {{
+                    font-size: 13px;
+                    font-weight: 600;
+                    color: #8e8e93;
+                    white-space: nowrap;
+                }}
+                .habit-item {{
+                    display: flex;
+                    align-items: center;
+                    padding: 10px 0;
+                    border-bottom: 1px solid rgba(0,0,0,0.05);
+                }}
+                .habit-item:last-child {{
+                    border-bottom: none;
+                }}
+                .habit-status {{
+                    width: 24px;
+                    height: 24px;
+                    border-radius: 12px;
+                    margin-right: 12px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 14px;
+                }}
+                .habit-done {{ background: #34c759; color: white; }}
+                .habit-pending {{ background: rgba(0,0,0,0.08); color: #8e8e93; }}
+                .habit-name {{
+                    font-size: 14px;
+                    color: #1a1a1a;
+                }}
+                .empty-state {{
+                    text-align: center;
+                    padding: 24px;
+                    color: #8e8e93;
+                    font-size: 14px;
                 }}
                 .footer {{
                     text-align: center;
-                    margin-top: 30px;
-                    padding-top: 20px;
-                    border-top: 2px solid #f0f0f0;
-                    color: #999;
-                    font-size: 13px;
+                    padding: 24px;
+                    color: #8e8e93;
+                    font-size: 12px;
                 }}
-                .empty {{
-                    text-align: center;
-                    color: #999;
-                    font-style: italic;
-                    padding: 20px;
+                .footer-brand {{
+                    font-weight: 600;
+                    color: #667eea;
+                }}
+                .positive {{ color: #34c759; }}
+                .negative {{ color: #ff3b30; }}
+                @media (max-width: 480px) {{
+                    .widget-grid {{
+                        grid-template-columns: 1fr;
+                    }}
+                    .widget-wide {{
+                        grid-column: span 1;
+                    }}
                 }}
             </style>
         </head>
         <body>
             <div class="container">
+                <!-- Header -->
                 <div class="header">
-                    <h1>🌅 Günlük Özet</h1>
-                    <div class="greeting">Merhaba {user_name}! İşte bugünün planı:</div>
-                    <div style="margin-top: 10px; color: #888; font-size: 14px;">{date}</div>
+                    <div class="header-greeting">Günaydın {user_name}! ☀️</div>
+                    <div class="header-date">{date}</div>
+                    <div class="header-subtitle">İşte bugünün özeti</div>
                 </div>
+
+                <!-- Widget Grid -->
+                <div class="widget-grid">
         """
 
-        # Görevler ve Etkinlikler
-        html += """
-                <div class="section">
-                    <div class="section-title">
-                        <span class="icon">📋</span>
-                        Görevler ve Etkinlikler
+        # Daily Score Widget (if available)
+        if total_points > 0:
+            progress_percent = min(100, (total_points / 100) * 100)
+            html += f"""
+                    <div class="widget">
+                        <div class="widget-title">⭐ Günlük Skor</div>
+                        <div class="widget-value">{total_points}</div>
+                        <div class="widget-subtitle">puan</div>
+                        <div class="progress-bar">
+                            <div class="progress-fill progress-orange" style="width: {progress_percent}%"></div>
+                        </div>
+                        <div style="margin-top: 12px;">
+                            <span class="chip chip-green">Görev +{task_points}</span>
+                            <span class="chip chip-blue">Odak +{pomodoro_points}</span>
+                            <span class="chip chip-orange">Sağlık +{health_points}</span>
+                        </div>
                     </div>
+            """
+
+        # Health Summary Widget
+        if sleep_hours > 0 or steps > 0 or active_minutes > 0:
+            html += f"""
+                    <div class="widget">
+                        <div class="widget-title">❤️ Sağlık</div>
+                        <div class="stat-row">
+                            <span class="stat-label">🛏️ Uyku</span>
+                            <span class="stat-value">{sleep_hours:.1f} saat</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">👟 Adım</span>
+                            <span class="stat-value">{steps:,}</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">⚡ Aktif</span>
+                            <span class="stat-value">{active_minutes} dk</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">🔥 Yakılan</span>
+                            <span class="stat-value">{calories_burned} kcal</span>
+                        </div>
+                    </div>
+            """
+
+        # Finance Widget
+        if total_invested > 0:
+            change_class = "positive" if daily_change >= 0 else "negative"
+            change_sign = "+" if daily_change >= 0 else ""
+            html += f"""
+                    <div class="widget">
+                        <div class="widget-title">📈 Yatırımlar</div>
+                        <div class="widget-value widget-value-small">₺{total_invested:,.0f}</div>
+                        <div class="widget-subtitle">toplam yatırım</div>
+                        <div style="margin-top: 8px;">
+                            <span class="{change_class}" style="font-weight: 600;">
+                                {change_sign}₺{abs(daily_change):,.0f} ({change_sign}{daily_change_percent:.1f}%)
+                            </span>
+                            <span style="color: #8e8e93; font-size: 12px;"> düne göre</span>
+                        </div>
+                    </div>
+            """
+
+        # Habits Widget
+        if total_habits > 0:
+            habits_progress = (completed_habits / total_habits) * 100 if total_habits > 0 else 0
+            html += f"""
+                    <div class="widget">
+                        <div class="widget-title">✅ Alışkanlıklar</div>
+                        <div class="widget-value">{completed_habits}/{total_habits}</div>
+                        <div class="widget-subtitle">tamamlandı</div>
+                        <div class="progress-bar">
+                            <div class="progress-fill progress-green" style="width: {habits_progress}%"></div>
+                        </div>
+            """
+            for habit in habits[:4]:
+                status_class = "habit-done" if habit.get("completed") else "habit-pending"
+                status_icon = "✓" if habit.get("completed") else "○"
+                html += f"""
+                        <div class="habit-item">
+                            <div class="habit-status {status_class}">{status_icon}</div>
+                            <span class="habit-name">{habit.get('name', '')}</span>
+                        </div>
+                """
+            html += "</div>"
+
+        # Day Planner Widget (Events + Tasks)
+        html += """
+                    <div class="widget widget-wide">
+                        <div class="widget-title">📅 Bugünün Programı</div>
         """
 
-        if tasks:
-            html += '<ul class="item-list">'
-            for task in tasks:
-                is_task = task.get("is_task", True)
-                item_type = "task" if is_task else "event"
-                title = task.get("title", "Başlıksız")
-                notes = task.get("notes", "")
-                display_time = task.get("start_time", "")
-                time_str = ""
+        if events or task_items:
+            # Events first (time-based)
+            if events:
+                html += '<div style="margin-bottom: 16px;">'
+                for event in events[:5]:
+                    title = event.get("title", "Etkinlik")
+                    start_time = event.get("start_time", "")
+                    end_time = event.get("end_time", "")
+                    tag = event.get("tag", "")
+                    time_display = start_time[:5] if start_time else ""
+                    if end_time and start_time != end_time:
+                        time_display += f"-{end_time[:5]}"
 
-                if display_time:
-                    time_str = f" • {display_time}" if not is_task else ""
+                    html += f"""
+                        <div class="event-item">
+                            <div class="event-time">{time_display}</div>
+                            <div class="event-content">
+                                <div class="event-title">{title}</div>
+                    """
+                    if tag:
+                        html += f'<div class="event-meta">🏷️ {tag}</div>'
+                    html += """
+                            </div>
+                        </div>
+                    """
+                html += '</div>'
 
-                html += f'''
-                    <li class="item {item_type}">
-                        <div class="item-title">{"✓" if is_task else "📅"} {title}{time_str}</div>
-                '''
+            # Tasks
+            if task_items:
+                html += '<div>'
+                for task in task_items[:6]:
+                    title = task.get("title", "Görev")
+                    status = task.get("status", "To Do")
+                    is_done = status.lower() == "done"
+                    checkbox_class = "task-checkbox-done" if is_done else ""
+                    checkbox_icon = "✓" if is_done else ""
 
-                if display_time and is_task:
-                    html += f'<div class="item-details">📅 {display_time}</div>'
+                    html += f"""
+                        <div class="task-item">
+                            <div class="task-checkbox {checkbox_class}">{checkbox_icon}</div>
+                            <span class="task-title">{title}</span>
+                        </div>
+                    """
+                html += '</div>'
 
-                if notes:
-                    html += f'<div class="item-details">{notes}</div>'
-
-                html += '</li>'
-
-            html += '</ul>'
+            if len(events) > 5:
+                html += f'<div style="text-align: center; color: #8e8e93; font-size: 13px; margin-top: 8px;">+{len(events) - 5} etkinlik daha</div>'
+            if len(task_items) > 6:
+                html += f'<div style="text-align: center; color: #8e8e93; font-size: 13px; margin-top: 8px;">+{len(task_items) - 6} görev daha</div>'
         else:
-            html += '<div class="empty">Bu dönem için görev veya etkinlik yok</div>'
+            html += '<div class="empty-state">Bugün için planlanmış görev veya etkinlik yok 🎉</div>'
 
-        html += '</div>'
+        html += "</div>"
 
-        # Yemekler
-        html += """
-                <div class="section">
-                    <div class="section-title">
-                        <span class="icon">🍽️</span>
-                        Günlük Menü
-                    </div>
-        """
-
+        # Meals Widget
         if meals:
-            html += '<ul class="item-list">'
+            html += """
+                    <div class="widget widget-wide">
+                        <div class="widget-title">🍽️ Günlük Menü</div>
+            """
             for meal in meals:
                 meal_type = meal.get("meal_type", "Yemek")
                 description = meal.get("description", "")
                 calories = meal.get("calories", 0)
-                meal_date = meal.get("meal_date", "")
 
-                html += f'''
-                    <li class="item meal">
-                        <div class="item-title">{meal_type}</div>
-                        <div class="item-details">{description}</div>
-                '''
+                # Emoji for meal type
+                meal_emoji = "🍳"
+                if "kahvalt" in meal_type.lower():
+                    meal_emoji = "🍳"
+                elif "öğle" in meal_type.lower():
+                    meal_emoji = "🥗"
+                elif "akşam" in meal_type.lower():
+                    meal_emoji = "🍝"
+                elif "atıştırmalık" in meal_type.lower():
+                    meal_emoji = "🍎"
 
-                if meal_date:
-                    html += f'<div class="item-details" style="margin-top: 5px;">📅 {meal_date}</div>'
+                html += f"""
+                        <div class="meal-item">
+                            <span class="meal-type">{meal_emoji} {meal_type}</span>
+                            <span class="meal-desc">{description}</span>
+                            <span class="meal-calories">{int(calories)} kcal</span>
+                        </div>
+                """
 
-                if calories > 0:
-                    html += f'<div class="item-details" style="margin-top: 5px;">🔥 {calories} kcal</div>'
+            html += f"""
+                        <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(0,0,0,0.05);">
+                            <span style="font-size: 14px; color: #8e8e93;">Toplam:</span>
+                            <span style="font-size: 16px; font-weight: 700; color: #ff9500; margin-left: 8px;">🔥 {int(total_calories)} kcal</span>
+                        </div>
+                    </div>
+            """
 
-                html += '</li>'
-
-            html += '</ul>'
-        else:
-            html += '<div class="empty">Bu dönem için yemek kaydı yok</div>'
-
-        html += '</div>'
-
-        # Footer
+        # Close widget grid
         html += """
+                </div>
+
+                <!-- Footer -->
                 <div class="footer">
-                    Bu e-posta Personal Assistant uygulamanız tarafından otomatik olarak gönderilmiştir.
+                    <p>Bu e-posta <span class="footer-brand">Personal Assistant</span> tarafından otomatik olarak gönderilmiştir.</p>
+                    <p style="margin-top: 8px;">🤖 AI-Powered Personal Assistant</p>
                 </div>
             </div>
         </body>

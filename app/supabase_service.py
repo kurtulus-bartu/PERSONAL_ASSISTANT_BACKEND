@@ -2035,6 +2035,165 @@ class SupabaseService:
             return []
 
     # ============================================================================
+    # EMAIL WIDGET DATA METHODS
+    # ============================================================================
+
+    def get_user_health_for_period(
+        self,
+        user_id: str,
+        start_date: date,
+        end_date: date
+    ) -> List[Dict[str, Any]]:
+        """Get user's health entries for a date range."""
+        if not self.client:
+            return []
+
+        try:
+            start_ts = datetime.combine(start_date, datetime.min.time()).isoformat()
+            end_ts = datetime.combine(end_date, datetime.max.time()).isoformat()
+            response = self.client.table("health_entries") \
+                .select("*") \
+                .eq("user_id", user_id) \
+                .gte("date", start_ts) \
+                .lte("date", end_ts) \
+                .execute()
+            return response.data or []
+        except Exception as e:
+            print(f"Error getting user health for period: {str(e)}")
+            return []
+
+    def get_user_sleep_for_period(
+        self,
+        user_id: str,
+        start_date: date,
+        end_date: date
+    ) -> List[Dict[str, Any]]:
+        """Get user's sleep entries for a date range."""
+        if not self.client:
+            return []
+
+        try:
+            start_ts = datetime.combine(start_date, datetime.min.time()).isoformat()
+            end_ts = datetime.combine(end_date, datetime.max.time()).isoformat()
+            response = self.client.table("sleep_entries") \
+                .select("*") \
+                .eq("user_id", user_id) \
+                .gte("date", start_ts) \
+                .lte("date", end_ts) \
+                .execute()
+            return response.data or []
+        except Exception as e:
+            print(f"Error getting user sleep for period: {str(e)}")
+            return []
+
+    def get_user_funds(self, user_id: str) -> List[Dict[str, Any]]:
+        """Get user's fund investments."""
+        if not self.client:
+            return []
+
+        try:
+            response = self.client.table("fund_investments") \
+                .select("*") \
+                .eq("user_id", user_id) \
+                .execute()
+            return response.data or []
+        except Exception as e:
+            print(f"Error getting user funds: {str(e)}")
+            return []
+
+    def get_user_stocks(self, user_id: str) -> List[Dict[str, Any]]:
+        """Get user's stock investments."""
+        if not self.client:
+            return []
+
+        try:
+            response = self.client.table("stock_investments") \
+                .select("*") \
+                .eq("user_id", user_id) \
+                .execute()
+            return response.data or []
+        except Exception as e:
+            print(f"Error getting user stocks: {str(e)}")
+            return []
+
+    def get_fund_daily_values(self, user_id: str, target_date: date) -> List[Dict[str, Any]]:
+        """Get fund daily values for a specific date."""
+        if not self.client:
+            return []
+
+        try:
+            date_str = target_date.isoformat()
+            response = self.client.table("fund_daily_values") \
+                .select("*") \
+                .eq("user_id", user_id) \
+                .eq("date", date_str) \
+                .execute()
+            return response.data or []
+        except Exception as e:
+            print(f"Error getting fund daily values: {str(e)}")
+            return []
+
+    def get_user_habits(self, user_id: str) -> List[Dict[str, Any]]:
+        """Get user's habits."""
+        if not self.client:
+            return []
+
+        try:
+            response = self.client.table("habits") \
+                .select("*") \
+                .eq("user_id", user_id) \
+                .eq("is_archived", False) \
+                .execute()
+            return response.data or []
+        except Exception as e:
+            print(f"Error getting user habits: {str(e)}")
+            return []
+
+    def get_user_habit_logs_for_date(
+        self,
+        user_id: str,
+        target_date: date
+    ) -> List[Dict[str, Any]]:
+        """Get user's habit logs for a specific date."""
+        if not self.client:
+            return []
+
+        try:
+            date_str = target_date.isoformat()
+            response = self.client.table("habit_logs") \
+                .select("*") \
+                .eq("user_id", user_id) \
+                .eq("date", date_str) \
+                .execute()
+            return response.data or []
+        except Exception as e:
+            print(f"Error getting user habit logs for date: {str(e)}")
+            return []
+
+    def get_user_pomodoro_sessions_for_date(
+        self,
+        user_id: str,
+        target_date: date
+    ) -> List[Dict[str, Any]]:
+        """Get user's pomodoro sessions for a specific date."""
+        if not self.client:
+            return []
+
+        try:
+            start_ts = datetime.combine(target_date, datetime.min.time()).isoformat()
+            end_ts = datetime.combine(target_date, datetime.max.time()).isoformat()
+            response = self.client.table("pomodoro_sessions") \
+                .select("*") \
+                .eq("user_id", user_id) \
+                .gte("start_time", start_ts) \
+                .lte("start_time", end_ts) \
+                .execute()
+            return response.data or []
+        except Exception as e:
+            print(f"Error getting user pomodoro sessions for date: {str(e)}")
+            return []
+
+    # ============================================================================
     # FITNESS COACHING METHODS
     # ============================================================================
 

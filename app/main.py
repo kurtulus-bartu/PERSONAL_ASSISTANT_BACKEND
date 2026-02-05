@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, Depends, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Set
 from datetime import datetime, timedelta, timezone, date
 import json
 import os
@@ -398,12 +398,12 @@ Reason: Neden bu değişiklik önerildi
 </EDIT>
 
 DÜZENLENEBİLİR ALANLAR:
-- task: title, startTime, endTime, notes, priority, completed
-- event: title, startTime, endTime, location, notes
-- meal: mealType, calories, description, notes
+- task: title, date, startTime, endTime, notes, priority, completed, delete
+- event: title, date, startTime, endTime, location, notes, delete
+- meal: mealType, date, calories, description, notes, delete
 - note: title, content, category
-- collection: title, notes, category, collectionType, isDone
-- habit: name, frequency, category, notes
+- collection: title, date, notes, category, collectionType, isDone, delete
+- habit: name, frequency, category, notes, delete
 
 DÜZENLEME ÖRNEKLERİ:
 <EDIT targetType="event" targetId="123e4567-e89b-12d3-a456-426614174000">
@@ -424,11 +424,19 @@ NewValue: high
 Reason: Son tarihe 2 gün kaldı, öncelik yükseltilmeli
 </EDIT>
 
+<EDIT targetType="event" targetId="11111111-2222-3333-4444-555555555555">
+Field: delete
+NewValue: true
+Reason: Artık gerekli değil, takvimi sadeleştir
+</EDIT>
+
 DÜZENLEME KURALLARI:
 - Sadece GEREKLI değişiklikleri öner (gereksiz düzenleme yapma)
 - Kullanıcının alışkanlıklarını öğren ve ona göre ayarlamalar yap
 - Her değişiklik için açıklama (Reason) ekle
 - Mevcut verilerdeki (todays_events, todays_meals, pending_tasks) itemleri düzenleyebilirsin
+- Gerekirse mevcut kaydı silebilir veya başka güne/saate taşıyabilirsin
+- Yemek kayıtlarını yeni öneri üretmeden doğrudan EDIT ile güncelleyebilirsin
 - startTime veya endTime değiştirirken ÇAKIŞMA yaratma
 - Hafızadaki bilgileri kullanarak kişiselleştirilmiş düzenlemeler yap
 
@@ -634,6 +642,16 @@ KULLANICI TERCİHLERİ VE HAFIZA:
 GEÇENGETİKİ PROGRAM:
 {previous_week_program}
 
+PROGRAM BAŞLANGIÇI:
+- Başlangıç günü: {program_start_day}
+- Tarih aralığı: {program_start_date} -> {program_end_date}
+
+HAZIR ŞABLON KÜTÜPHANESİ (öncelik ver):
+{template_library}
+
+KULLANICININ SON DÖNEM EGZERSİZLERİ:
+{available_exercises}
+
 GÖREVİN:
 1. **Haftalık Özet**: Kullanıcının performansını değerlendir
 2. **Güçlü Yönler**: Ne iyi gitti? (consistency, progressive overload, dengeforms)
@@ -648,6 +666,13 @@ GÖREVİN:
 - Progressive overload UYGULA (geçen haftadan biraz daha zorlayıcı olsun ama aşırıya kaçma)
 - Yeni başlayan biriyse hafif başla, deneyimli biriyse zorla
 - Kas gruplarını 48-72 saat dinlendirmeden tekrar çalıştırma
+- Program günlerini mevcut tarihe göre sırala: ilk gün her zaman {program_start_day}
+- Şablon kütüphanesindeki egzersiz isimlerini öncele; yoksa kullanıcının geçmiş egzersizlerini kullan
+- Uzun paragraf yazma:
+  * SUMMARY en fazla 35 kelime
+  * Her STRENGTH maddesi en fazla 12 kelime
+  * Her IMPROVEMENT maddesi en fazla 12 kelime
+  * MOTIVATION en fazla 20 kelime
 
 FORMAT:
 <COACHING_SESSION>
@@ -2190,6 +2215,48 @@ def _week_bounds(reference_datetime: Optional[datetime] = None) -> tuple[date, d
     return week_start, week_end
 
 
+def _turkish_weekday_name(value: date) -> str:
+    names = [
+        "Pazartesi",
+        "Salı",
+        "Çarşamba",
+        "Perşembe",
+        "Cuma",
+        "Cumartesi",
+        "Pazar"
+    ]
+    return names[value.weekday()]
+
+
+def _fitness_template_library_summary() -> str:
+    templates = [
+        "Push Day - Güç: Bench Press, Shoulder Press, Tricep Extension",
+        "Pull Day - Güç: Deadlift, Pull-up, Barbell Row",
+        "Leg Day - Güç: Squat, Romanian Deadlift, Leg Press",
+        "Tüm Vücut - Başlangıç: Squat, Bench Press, Row, Plank",
+        "Üst Vücut - Hacim: Bench Press, Dumbbell Fly, Pull-up, Lateral Raise",
+        "Vücut Ağırlığı: Push-ups, Pull-up, Lunges, Plank, Burpees",
+        "Atletik: Box Jump, Kettlebell Swing, Battle Ropes"
+    ]
+    return "\n".join(f"- {line}" for line in templates)
+
+
+def _extract_recent_exercise_names(workouts: List[Dict[str, Any]], limit: int = 24) -> List[str]:
+    names: List[str] = []
+    seen: Set[str] = set()
+    for workout in workouts:
+        for exercise in workout.get("exercises", []):
+            name = str(exercise.get("name", "")).strip()
+            key = name.lower()
+            if not name or key in seen:
+                continue
+            seen.add(key)
+            names.append(name)
+            if len(names) >= limit:
+                return names
+    return names
+
+
 async def ensure_weekly_fitness_coaching_for_user(
     user_id: str,
     reference_datetime: Optional[datetime] = None,
@@ -2229,6 +2296,9 @@ async def generate_fitness_coaching_for_user(
         limit=10
     )
     previous_coaching = supabase_service.get_latest_fitness_coaching(user_id)
+    program_start_date = (reference_datetime or datetime.now(timezone.utc)).date()
+    program_end_date = program_start_date + timedelta(days=6)
+    available_exercise_names = _extract_recent_exercise_names(workouts)
 
     # Build context for AI
     context = {
@@ -2241,7 +2311,12 @@ async def generate_fitness_coaching_for_user(
         "avg_workout_duration": f"{metrics['avg_duration']:.0f} dk",
         "avg_rpe": f"{metrics['avg_rpe']:.1f}",
         "user_fitness_memories": "\n".join([f"- {m.get('content', '')}" for m in fitness_memories]),
-        "previous_week_program": previous_coaching.get("next_week_program", {}) if previous_coaching else {}
+        "previous_week_program": previous_coaching.get("next_week_program", {}) if previous_coaching else {},
+        "program_start_day": _turkish_weekday_name(program_start_date),
+        "program_start_date": str(program_start_date),
+        "program_end_date": str(program_end_date),
+        "template_library": _fitness_template_library_summary(),
+        "available_exercises": ", ".join(available_exercise_names) if available_exercise_names else "Yeterli geçmiş egzersiz verisi yok"
     }
 
     coaching_data = {
@@ -2262,7 +2337,7 @@ async def generate_fitness_coaching_for_user(
             context=context,
             system_prompt=coaching_prompt
         )
-        coaching_data = parse_fitness_coaching_response(response)
+        coaching_data = parse_fitness_coaching_response(response, start_date=program_start_date)
     else:
         print("GEMINI_API_KEY not set, saving fallback coaching session")
 
@@ -2379,7 +2454,7 @@ def calculate_weekly_fitness_metrics(workouts: list, week_start, week_end) -> di
     }
 
 
-def parse_fitness_coaching_response(response_text: str) -> dict:
+def parse_fitness_coaching_response(response_text: str, start_date: Optional[date] = None) -> dict:
     """Parse AI coaching response into structured data"""
     import re
 
@@ -2403,6 +2478,12 @@ def parse_fitness_coaching_response(response_text: str) -> dict:
             return int(digit_match.group(0))
         return default
 
+    def clamp_words(text: str, max_words: int) -> str:
+        words = str(text or "").strip().split()
+        if len(words) <= max_words:
+            return str(text or "").strip()
+        return " ".join(words[:max_words]).strip() + "..."
+
     result = {
         "weekly_summary": "",
         "strengths": [],
@@ -2414,24 +2495,24 @@ def parse_fitness_coaching_response(response_text: str) -> dict:
     # Extract summary
     summary_match = re.search(r'<SUMMARY>(.*?)</SUMMARY>', response_text, re.DOTALL)
     if summary_match:
-        result["weekly_summary"] = summary_match.group(1).strip()
+        result["weekly_summary"] = clamp_words(summary_match.group(1).strip(), 35)
 
     # Extract strengths
     strengths_match = re.search(r'<STRENGTHS>(.*?)</STRENGTHS>', response_text, re.DOTALL)
     if strengths_match:
         strengths_text = strengths_match.group(1).strip()
-        result["strengths"] = [s.strip().lstrip('- ') for s in strengths_text.split('\n') if s.strip() and s.strip().startswith('-')]
+        result["strengths"] = [clamp_words(s.strip().lstrip('- '), 12) for s in strengths_text.split('\n') if s.strip() and s.strip().startswith('-')]
 
     # Extract improvements
     improvements_match = re.search(r'<IMPROVEMENTS>(.*?)</IMPROVEMENTS>', response_text, re.DOTALL)
     if improvements_match:
         improvements_text = improvements_match.group(1).strip()
-        result["areas_for_improvement"] = [i.strip().lstrip('- ') for i in improvements_text.split('\n') if i.strip() and i.strip().startswith('-')]
+        result["areas_for_improvement"] = [clamp_words(i.strip().lstrip('- '), 12) for i in improvements_text.split('\n') if i.strip() and i.strip().startswith('-')]
 
     # Extract motivation
     motivation_match = re.search(r'<MOTIVATION>(.*?)</MOTIVATION>', response_text, re.DOTALL)
     if motivation_match:
-        result["motivation_message"] = motivation_match.group(1).strip()
+        result["motivation_message"] = clamp_words(motivation_match.group(1).strip(), 20)
 
     # Extract program
     program_match = re.search(r'<PROGRAM>(.*?)</PROGRAM>', response_text, re.DOTALL)
@@ -2467,6 +2548,11 @@ def parse_fitness_coaching_response(response_text: str) -> dict:
                     "workoutType": workout_type,
                     "exercises": exercises
                 })
+
+    if start_date and result["next_week_program"]["days"]:
+        for idx, day in enumerate(result["next_week_program"]["days"]):
+            date_value = start_date + timedelta(days=idx)
+            day["day"] = _turkish_weekday_name(date_value)
 
     return result
 
@@ -2616,19 +2702,117 @@ async def check_and_send_daily_emails(user_id: str):
                     personal_email = friend_email
                     break
 
-        start_date = datetime.now(timezone.utc).date()
-        end_date = start_date + timedelta(days=6)
-        date_label = f"{start_date.strftime('%d.%m.%Y')} - {end_date.strftime('%d.%m.%Y')}"
+        # Get TODAY's date only (not 7 days)
+        today = datetime.now(timezone.utc).date()
+        date_label = today.strftime('%d.%m.%Y')
 
-        raw_tasks = supabase_service.get_user_tasks_for_period(user_id, start_date, end_date)
+        # Get only TODAY's tasks and events
+        raw_tasks = supabase_service.get_user_tasks_for_period(user_id, today, today)
         mapped_tasks = [_map_task_for_email(row) for row in raw_tasks]
 
-        raw_meals = supabase_service.get_user_meals_for_period(user_id, start_date, end_date)
+        # Get only TODAY's meals
+        raw_meals = supabase_service.get_user_meals_for_period(user_id, today, today)
         mapped_meals = [_map_meal_for_email(row) for row in raw_meals]
+
+        # Get health data for today
+        health_data = None
+        try:
+            health_entries = supabase_service.get_user_health_for_period(user_id, today, today)
+            sleep_entries = supabase_service.get_user_sleep_for_period(user_id, today, today)
+            if health_entries or sleep_entries:
+                health_entry = health_entries[0] if health_entries else {}
+                sleep_entry = sleep_entries[0] if sleep_entries else {}
+                health_data = {
+                    "sleep_hours": sleep_entry.get("duration", 0),
+                    "steps": health_entry.get("steps", 0),
+                    "active_minutes": health_entry.get("active_minutes", 0),
+                    "calories_burned": health_entry.get("calories_burned", 0)
+                }
+        except Exception as health_err:
+            print(f"Error fetching health data: {health_err}")
+
+        # Get finance data
+        finance_data = None
+        try:
+            funds = supabase_service.get_user_funds(user_id)
+            stocks = supabase_service.get_user_stocks(user_id)
+            if funds or stocks:
+                total_invested = sum(f.get("investment_amount", 0) for f in funds)
+                total_invested += sum(s.get("investment_amount", 0) for s in stocks)
+
+                # Calculate daily change from fund daily values
+                daily_change = 0
+                daily_change_percent = 0
+                try:
+                    fund_values = supabase_service.get_fund_daily_values(user_id, today)
+                    if fund_values:
+                        current_value = sum(fv.get("current_value", 0) for fv in fund_values)
+                        previous_value = sum(fv.get("previous_value", 0) for fv in fund_values)
+                        if previous_value > 0:
+                            daily_change = current_value - previous_value
+                            daily_change_percent = (daily_change / previous_value) * 100
+                except Exception:
+                    pass
+
+                finance_data = {
+                    "total_invested": total_invested,
+                    "daily_change": daily_change,
+                    "daily_change_percent": daily_change_percent
+                }
+        except Exception as finance_err:
+            print(f"Error fetching finance data: {finance_err}")
+
+        # Get habits for today
+        habits_data = None
+        try:
+            habits = supabase_service.get_user_habits(user_id)
+            habit_logs = supabase_service.get_user_habit_logs_for_date(user_id, today)
+            if habits:
+                habits_data = []
+                for habit in habits:
+                    habit_id = habit.get("id")
+                    log = next((l for l in habit_logs if l.get("habit_id") == habit_id), None)
+                    completed = log.get("completed", False) if log else False
+                    habits_data.append({
+                        "name": habit.get("name", ""),
+                        "completed": completed
+                    })
+        except Exception as habits_err:
+            print(f"Error fetching habits data: {habits_err}")
+
+        # Calculate daily score
+        daily_score = None
+        try:
+            completed_tasks = sum(1 for t in mapped_tasks if t.get("status", "").lower() == "done")
+            task_points = min(30, completed_tasks * 5)  # Max 30 points for tasks
+
+            # Pomodoro points (from sessions today)
+            pomodoro_sessions = supabase_service.get_user_pomodoro_sessions_for_date(user_id, today)
+            focus_minutes = sum(s.get("duration", 0) for s in pomodoro_sessions) if pomodoro_sessions else 0
+            pomodoro_points = min(30, focus_minutes // 5)  # 1 point per 5 minutes, max 30
+
+            # Health points
+            health_points = 0
+            if health_data:
+                if health_data.get("sleep_hours", 0) >= 7:
+                    health_points += 10
+                if health_data.get("steps", 0) >= 5000:
+                    health_points += 10
+                if health_data.get("active_minutes", 0) >= 30:
+                    health_points += 10
+
+            daily_score = {
+                "total_points": task_points + pomodoro_points + health_points,
+                "task_points": task_points,
+                "pomodoro_points": pomodoro_points,
+                "health_points": health_points
+            }
+        except Exception as score_err:
+            print(f"Error calculating daily score: {score_err}")
 
         any_sent = False
 
-        # Friend emails (only tasks assigned to each friend)
+        # Friend emails (only TODAY's tasks assigned to each friend)
         if friends:
             for friend in friends:
                 friend_id = friend.get("id")
@@ -2655,14 +2839,18 @@ async def check_and_send_daily_emails(user_id: str):
                 )
                 any_sent = any_sent or sent
 
-        # Personal email (if configured)
+        # Personal email (if configured) - with all widget data
         if personal_email:
             sent = email_service.send_personal_summary(
                 user_email=personal_email,
                 user_name=user_name,
                 tasks=mapped_tasks,
                 meals=mapped_meals,
-                date=date_label
+                date=date_label,
+                health_data=health_data,
+                finance_data=finance_data,
+                habits_data=habits_data,
+                daily_score=daily_score
             )
             any_sent = any_sent or sent
 

@@ -40,12 +40,12 @@ AI_CAPABILITIES = {
     "data_access": {
         "tasks": {
             "description": "Görevler ve planlayıcı etkinlikleri",
-            "operations": ["read", "create", "update", "analyze"],
+            "operations": ["read", "create", "update", "delete", "analyze"],
             "filters": ["date_range", "status", "project", "tag"]
         },
         "notes": {
             "description": "Kullanıcı notları",
-            "operations": ["read", "create", "search"],
+            "operations": ["read", "create", "update", "delete", "search"],
             "filters": ["date_range", "tags", "project"]
         },
         "health": {
@@ -65,7 +65,7 @@ AI_CAPABILITIES = {
         },
         "meals": {
             "description": "Yemek ve beslenme takibi",
-            "operations": ["read", "analyze"],
+            "operations": ["read", "create", "update", "delete", "analyze"],
             "filters": ["date_range", "meal_type"]
         },
         "workouts": {
@@ -97,12 +97,25 @@ AI_CAPABILITIES = {
             "description": "Arkadaş listesi",
             "operations": ["read"],
             "filters": []
+        },
+        "ai_suggestions": {
+            "description": "AI önerileri (kendi önerilerini yönetebilir)",
+            "operations": ["read", "update", "delete"],
+            "filters": ["status", "type", "date_range"]
         }
     },
     "actions": {
         "create_task": "Yeni görev oluştur",
+        "update_task": "Mevcut görevi güncelle/taşı",
+        "delete_task": "Görevi sil",
         "create_note": "Not ekle",
+        "update_note": "Notu güncelle",
+        "delete_note": "Notu sil",
         "add_meal": "Yemek kaydı ekle",
+        "update_meal": "Yemek kaydını güncelle",
+        "delete_meal": "Yemek kaydını sil",
+        "update_suggestion": "Kendi önerisini güncelle",
+        "delete_suggestion": "Kendi önerisini sil",
         "suggest_investment": "Yatırım önerisi sun",
         "analyze_trend": "Trend analizi yap",
         "calculate_progress": "İlerleme hesapla"
@@ -279,7 +292,7 @@ Kullanıcıya faydalı önerilerde bulunabilir ve önemli bilgileri hafızana ka
 ### Öneri Formatı
 Uygulamada doğrudan işlem yapılabilecek öneriler oluşturmak için:
 
-<SUGGESTION type="task|goal|health|finance">
+<SUGGESTION type="task|goal|health|finance|meal">
 Öneri metni buraya
 [metadata:key=value,key2=value2]
 </SUGGESTION>
@@ -298,6 +311,12 @@ Yarın saat 18:00'de spor salonuna git
 [metadata:startTime=18:00,duration=60,project=Sağlık,isTask=false]
 </SUGGESTION>
 
+Yemek önerisi:
+<SUGGESTION type="meal">
+Kahvaltı: Yulaf ezmesi, muz ve bal
+[metadata:mealType=Kahvaltı,date=2025-01-16,calories=350]
+</SUGGESTION>
+
 ### Hafıza Formatı
 Kullanıcı hakkında öğrendiğin önemli bilgileri kaydetmek için:
 
@@ -310,6 +329,50 @@ Hafıza kaydı metni
 Kullanıcı her pazartesi akşamı spor salonuna gidiyor
 </MEMORY>
 
+## MEVCUT VERİLERİ DÜZENLEME VE SİLME
+
+Kullanıcının mevcut verilerini düzenleyebilir veya silebilirsin. EDIT tag'i ile mevcut kayıtları değiştirebilirsin:
+
+### Düzenleme Formatı
+<EDIT targetType="task|meal|note" targetId="uuid">
+Field: alanAdi
+NewValue: yeniDeger
+Reason: Neden değişiklik yapıldığı
+</EDIT>
+
+Örnekler:
+
+Görevi başka güne taşıma:
+<EDIT targetType="task" targetId="abc123-def456">
+Field: taskDate
+NewValue: 2025-01-20
+Reason: Kullanıcı meşgul, görevi haftaya taşıyorum
+</EDIT>
+
+Yemek kaydını güncelleme:
+<EDIT targetType="meal" targetId="meal-uuid-123">
+Field: calories
+NewValue: 450
+Reason: Kalori hesabı düzeltildi
+</EDIT>
+
+### Silme Formatı
+<DELETE targetType="task|meal|note|suggestion" targetId="uuid">
+Reason: Silme gerekçesi
+</DELETE>
+
+Örnek - Kendi önerisini silme:
+<DELETE targetType="suggestion" targetId="suggestion-uuid-123">
+Reason: Kullanıcı bu öneriyi istemedi
+</DELETE>
+
+## KENDİ ÖNERİLERİNİ YÖNETME
+
+Daha önce yaptığın AI önerilerini (suggestions) güncelleyebilir veya silebilirsin:
+- Kullanıcı bir öneriyi beğenmediyse silebilirsin
+- Öneriyi değiştirmek istersen güncelleyebilirsin
+- Öneriyi farklı bir tarihe taşıyabilirsin
+
 ## YANIT FORMATI
 
 Kullanıcıya yanıt verirken:
@@ -320,6 +383,8 @@ Kullanıcıya yanıt verirken:
 5. Actionable önerilerde bulun
 6. İlgili önerileri <SUGGESTION> tagları ile sun
 7. Önemli bilgileri <MEMORY> tagları ile kaydet
+8. Mevcut verileri düzenlemek için <EDIT> tagları kullan
+9. Silme işlemleri için <DELETE> tagları kullan
 """
 
     return prompt
@@ -627,6 +692,41 @@ def parse_edit_suggestions(ai_response: str) -> List[Dict[str, Any]]:
     return edits
 
 
+def parse_delete_requests(ai_response: str) -> List[Dict[str, Any]]:
+    """
+    Parse AI response to extract DELETE tags for removing items
+
+    Args:
+        ai_response: AI's response text that may contain DELETE tags
+
+    Returns:
+        List of delete request dictionaries
+    """
+    import re
+
+    deletes = []
+
+    # Parse DELETE tags
+    # Format: <DELETE targetType="task" targetId="uuid">Reason: reason</DELETE>
+    delete_pattern = r'<DELETE\s+targetType="([^"]+)"\s+targetId="([^"]+)">(.*?)</DELETE>'
+    delete_matches = re.findall(delete_pattern, ai_response, re.DOTALL)
+
+    for target_type, target_id, content in delete_matches:
+        content = content.strip()
+
+        # Parse reason from content
+        reason_match = re.search(r'Reason:\s*(.+?)(?:\n|$)', content, re.MULTILINE)
+        reason = reason_match.group(1).strip() if reason_match else content.strip()
+
+        deletes.append({
+            'targetType': target_type.strip(),
+            'targetId': target_id.strip(),
+            'reason': reason
+        })
+
+    return deletes
+
+
 def remove_tags_from_response(ai_response: str) -> str:
     """
     Remove SUGGESTION and MEMORY tags from AI response to get clean text
@@ -663,5 +763,7 @@ __all__ = [
     'validate_data_request',
     'format_response_with_request_info',
     'parse_suggestions_and_memories',
+    'parse_edit_suggestions',
+    'parse_delete_requests',
     'remove_tags_from_response'
 ]
