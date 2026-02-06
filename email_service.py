@@ -479,6 +479,34 @@ class EmailService:
         total_meals = len(meals)
         total_calories = sum(m.get("calories", 0) for m in meals)
 
+        # Group meals by type for widget layout
+        def normalize_meal_type(value: str) -> str:
+            lowered = value.lower()
+            if "kahvalt" in lowered:
+                return "Kahvaltı"
+            if "öğle" in lowered or "ogle" in lowered:
+                return "Öğle"
+            if "akşam" in lowered or "aksam" in lowered:
+                return "Akşam"
+            if "atıştır" in lowered or "atis" in lowered:
+                return "Atıştırmalık"
+            return value or "Diğer"
+
+        def split_meal_items(value: str) -> List[str]:
+            cleaned = (value or "").strip()
+            if not cleaned:
+                return []
+            if "|" in cleaned:
+                return [item.strip(" -•*") for item in cleaned.split("|") if item.strip()]
+            if "\n" in cleaned:
+                return [item.strip(" -•*") for item in cleaned.splitlines() if item.strip()]
+            return [cleaned]
+
+        meal_groups: Dict[str, List[Dict[str, Any]]] = {}
+        for meal in meals:
+            meal_type = normalize_meal_type(str(meal.get("meal_type", "")).strip())
+            meal_groups.setdefault(meal_type, []).append(meal)
+
         # Get health stats with defaults
         health = health_data or {}
         sleep_hours = health.get("sleep_hours", 0)
@@ -655,15 +683,37 @@ class EmailService:
                     padding: 14px 0;
                     border-bottom: 1px solid rgba(0,0,0,0.05);
                 }}
+                .event-grid {{
+                    display: grid;
+                    grid-template-columns: 70px 1fr;
+                    gap: 10px 12px;
+                    padding: 12px;
+                    border-radius: 16px;
+                    background: repeating-linear-gradient(
+                        to bottom,
+                        rgba(0,0,0,0.04) 0,
+                        rgba(0,0,0,0.04) 1px,
+                        transparent 1px,
+                        transparent 28px
+                    );
+                }}
+                .event-card {{
+                    background: rgba(255, 255, 255, 0.8);
+                    border-radius: 12px;
+                    padding: 10px 12px;
+                    border: 1px solid rgba(255,255,255,0.9);
+                    box-shadow: 0 2px 10px rgba(0,0,0,0.04);
+                }}
                 .event-item:last-child {{
                     border-bottom: none;
                     padding-bottom: 0;
                 }}
                 .event-time {{
-                    min-width: 60px;
+                    min-width: 70px;
                     font-size: 14px;
                     font-weight: 600;
                     color: #007aff;
+                    text-align: right;
                 }}
                 .event-content {{
                     flex: 1;
@@ -738,6 +788,45 @@ class EmailService:
                     color: #8e8e93;
                     white-space: nowrap;
                 }}
+                .meal-grid {{
+                    display: grid;
+                    grid-template-columns: repeat(3, 1fr);
+                    gap: 12px;
+                }}
+                .meal-card {{
+                    background: rgba(255, 255, 255, 0.8);
+                    border-radius: 16px;
+                    padding: 14px;
+                    border: 1px solid rgba(255,255,255,0.9);
+                    box-shadow: 0 3px 12px rgba(0,0,0,0.06);
+                }}
+                .meal-card-title {{
+                    font-size: 13px;
+                    font-weight: 700;
+                    color: #ff9500;
+                    margin-bottom: 8px;
+                }}
+                .meal-list {{
+                    list-style: none;
+                    padding: 0;
+                    margin: 0;
+                }}
+                .meal-list-item {{
+                    font-size: 13px;
+                    color: #1a1a1a;
+                    padding: 6px 0;
+                    border-bottom: 1px dashed rgba(0,0,0,0.08);
+                }}
+                .meal-list-item:last-child {{
+                    border-bottom: none;
+                    padding-bottom: 0;
+                }}
+                .meal-card-foot {{
+                    margin-top: 10px;
+                    font-size: 12px;
+                    font-weight: 600;
+                    color: #8e8e93;
+                }}
                 .habit-item {{
                     display: flex;
                     align-items: center;
@@ -787,6 +876,9 @@ class EmailService:
                     }}
                     .widget-wide {{
                         grid-column: span 1;
+                    }}
+                    .meal-grid {{
+                        grid-template-columns: 1fr;
                     }}
                 }}
             </style>
@@ -897,26 +989,24 @@ class EmailService:
         if events or task_items:
             # Events first (time-based)
             if events:
-                html += '<div style="margin-bottom: 16px;">'
+                html += '<div class="event-grid">'
                 for event in events[:5]:
                     title = event.get("title", "Etkinlik")
                     start_time = event.get("start_time", "")
                     end_time = event.get("end_time", "")
                     tag = event.get("tag", "")
-                    time_display = start_time[:5] if start_time else ""
+                    time_display = start_time[:5] if start_time else "--:--"
                     if end_time and start_time != end_time:
                         time_display += f"-{end_time[:5]}"
 
                     html += f"""
-                        <div class="event-item">
-                            <div class="event-time">{time_display}</div>
-                            <div class="event-content">
-                                <div class="event-title">{title}</div>
+                        <div class="event-time">{time_display}</div>
+                        <div class="event-card">
+                            <div class="event-title">{title}</div>
                     """
                     if tag:
                         html += f'<div class="event-meta">🏷️ {tag}</div>'
                     html += """
-                            </div>
                         </div>
                     """
                 html += '</div>'
@@ -953,36 +1043,58 @@ class EmailService:
             html += """
                     <div class="widget widget-wide">
                         <div class="widget-title">🍽️ Günlük Menü</div>
+                        <div class="meal-grid">
             """
-            for meal in meals:
-                meal_type = meal.get("meal_type", "Yemek")
-                description = meal.get("description", "")
-                calories = meal.get("calories", 0)
+            meal_order = ["Kahvaltı", "Öğle", "Akşam", "Atıştırmalık", "Diğer"]
+            for meal_type in meal_order:
+                group = meal_groups.get(meal_type, [])
+                if not group:
+                    continue
 
-                # Emoji for meal type
-                meal_emoji = "🍳"
-                if "kahvalt" in meal_type.lower():
-                    meal_emoji = "🍳"
-                elif "öğle" in meal_type.lower():
-                    meal_emoji = "🥗"
-                elif "akşam" in meal_type.lower():
-                    meal_emoji = "🍝"
-                elif "atıştırmalık" in meal_type.lower():
-                    meal_emoji = "🍎"
+                items: List[str] = []
+                meal_calories = 0.0
+                for meal in group:
+                    description = str(meal.get("description", "")).strip()
+                    items.extend(split_meal_items(description))
+                    try:
+                        meal_calories += float(meal.get("calories", 0) or 0)
+                    except (TypeError, ValueError):
+                        pass
+
+                if not items:
+                    items = ["Planlanmadı"]
+
+                items_html = "".join(
+                    f'<li class="meal-list-item">{item}</li>' for item in items
+                )
+                calories_html = (
+                    f'<div class="meal-card-foot">{int(meal_calories)} kcal</div>'
+                    if meal_calories > 0 else ""
+                )
 
                 html += f"""
-                        <div class="meal-item">
-                            <span class="meal-type">{meal_emoji} {meal_type}</span>
-                            <span class="meal-desc">{description}</span>
-                            <span class="meal-calories">{int(calories)} kcal</span>
+                        <div class="meal-card">
+                            <div class="meal-card-title">{meal_type}</div>
+                            <ul class="meal-list">
+                                {items_html}
+                            </ul>
+                            {calories_html}
                         </div>
                 """
 
-            html += f"""
+            html += """
+                        </div>
+            """
+
+            if total_calories > 0:
+                html += f"""
                         <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(0,0,0,0.05);">
                             <span style="font-size: 14px; color: #8e8e93;">Toplam:</span>
                             <span style="font-size: 16px; font-weight: 700; color: #ff9500; margin-left: 8px;">🔥 {int(total_calories)} kcal</span>
                         </div>
+                """
+
+            html += """
                     </div>
             """
 

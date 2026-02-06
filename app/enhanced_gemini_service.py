@@ -36,7 +36,8 @@ class EnhancedGeminiService:
             raise ValueError("GEMINI_API_KEY gerekli")
 
         genai.configure(api_key=self.api_key)
-        self.model = genai.GenerativeModel('gemini-2.5-flash')
+        model_name = os.getenv("GEMINI_MODEL", "gemini-3-flash")
+        self.model = genai.GenerativeModel(model_name)
 
         # Cache the capabilities prompt
         self.capabilities_prompt = get_capabilities_prompt()

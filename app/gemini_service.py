@@ -19,8 +19,8 @@ class GeminiService:
             raise ValueError("GEMINI_API_KEY gerekli")
 
         genai.configure(api_key=self.api_key)
-        # Gemini 1.5 Flash - hızlı ve uygun maliyetli
-        self.model = genai.GenerativeModel('gemini-2.5-flash')
+        model_name = os.getenv("GEMINI_MODEL", "gemini-3-flash")
+        self.model = genai.GenerativeModel(model_name)
 
     def generate_response(
         self,

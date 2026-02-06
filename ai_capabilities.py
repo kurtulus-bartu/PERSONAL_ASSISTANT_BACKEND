@@ -277,6 +277,11 @@ Saatli etkinlik oluşturma:
 
 **ÖNEMLİ:** Kullanıcı belirli bir saat belirtiyorsa (örn: "yarın 14:00'te toplantı"), mutlaka **isTask: false** ile ETKİNLİK oluştur. Sadece tarih varsa (örn: "yarın rapor hazırla") **isTask: true** ile GÖREV oluştur.
 
+### Notlar ve Koleksiyonlar
+- **Not**: Kişisel fikir, öğrenme notu, hatırlatma (zamansız kısa içerik)
+- **Koleksiyon**: Kitap/film/dizi/podcast/kurs/mekan/oyun önerileri (collectionType zorunlu)
+- İçerik bir eser/öneri ise **collection**, kişisel kısa not ise **note** seç
+
 ## KULLANICI İLE ETKİLEŞİM
 
 - Türkçe konuş
@@ -293,7 +298,7 @@ Kullanıcıya faydalı önerilerde bulunabilir ve önemli bilgileri hafızana ka
 ### Öneri Formatı
 Uygulamada doğrudan işlem yapılabilecek öneriler oluşturmak için:
 
-<SUGGESTION type="task|goal|health|finance|meal">
+<SUGGESTION type="task|event|note|collection|habit|goal|health|finance|meal">
 Öneri metni buraya
 [metadata:key=value,key2=value2]
 </SUGGESTION>
@@ -307,7 +312,7 @@ Yarın market alışverişi yap
 </SUGGESTION>
 
 Etkinlik önerisi (saatli):
-<SUGGESTION type="task">
+<SUGGESTION type="event">
 Yarın saat 18:00'de spor salonuna git
 [metadata:startTime=18:00,duration=60,project=Sağlık,isTask=false]
 </SUGGESTION>

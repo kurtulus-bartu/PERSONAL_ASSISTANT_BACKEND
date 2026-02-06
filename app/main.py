@@ -4,6 +4,7 @@ from typing import List, Optional, Dict, Any, Set
 from datetime import datetime, timedelta, timezone, date
 import json
 import os
+import re
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -353,6 +354,8 @@ KURALLAR - ÇOK ÖNEMLİ:
 - **TEKRAR YASAK**: todays_meals'de olan öğünü TEKRAR önerme
 - **TIME EKLE**: Sadece meal ve event önerilerinde time belirt
 - **TASK VS EVENT**: start/end saat aralığı içeren her öneri EVENT olmalı, TASK olmamalı
+- **NOTE VS COLLECTION**: Kitap/film/dizi/podcast/kurs/mekan/oyun önerileri COLLECTION olmalı; kişisel fikir/öğrenme notu NOTE olmalı
+- **MEAL VS NOTE**: Öğün, kalori veya menü içeriği varsa NOTE değil MEAL olmalı
 - **BOŞ ZAMAN BUL**: event önerirken todays_events arasındaki boşlukları kullan
 - **AÇIKLAMA PLACEHOLDER YASAK**: SUGGESTION gövdesine "Açıklama/Description" yazma, gerçek başlık yaz
 - Metadata değerlerinde virgül kullanma (gerekirse tire veya ve kullan). Menüde **|** kullan.
