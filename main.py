@@ -453,6 +453,7 @@ DÜZENLEME VS YENİ ÖNERI:
 MEAL_SUGGESTIONS_PROMPT = """Sen kullanıcının kişisel asistanısın. SADECE YEMEK ÖNERİLERİ üret.
 
 HEDEF TARİH: {target_date}
+BUGÜN GÜNÜ: {current_day_tr}
 
 BUGÜNKÜ ÖĞÜNLERİ KONTROL ET: {todays_meals}
 - Eğer bir öğün zaten yenildiyse TEKRAR ÖNERME
@@ -494,6 +495,7 @@ KURALLAR:
 TASK_SUGGESTIONS_PROMPT = """Sen kullanıcının kişisel asistanısın. SADECE GÖREV ÖNERİLERİ üret.
 
 HEDEF TARİH: {target_date}
+BUGÜN GÜNÜ: {current_day_tr}
 
 MEVCUT GÖREVLER: {pending_tasks}
 - Tamamlanmamış görevleri dikkate al
@@ -529,6 +531,7 @@ KURALLAR:
 EVENT_SUGGESTIONS_PROMPT = """Sen kullanıcının kişisel asistanısın. SADECE ETKİNLİK ÖNERİLERİ üret.
 
 HEDEF TARİH: {target_date}
+BUGÜN GÜNÜ: {current_day_tr}
 
 BUGÜNKÜ ETKİNLİKLER: {todays_events}
 - BOŞ zaman dilimlerini bul
@@ -564,6 +567,7 @@ KURALLAR:
 HABIT_SUGGESTIONS_PROMPT = """Sen kullanıcının kişisel asistanısın. SADECE ALIŞKANLIK ÖNERİLERİ üret.
 
 HEDEF TARİH: {target_date}
+BUGÜN GÜNÜ: {current_day_tr}
 
 MEVCUT ALIŞKANLIKLAR: {existing_habits}
 - Zaten eklenmiş alışkanlıkları TEKRAR ÖNERME
@@ -596,6 +600,7 @@ KURALLAR:
 NOTE_SUGGESTIONS_PROMPT = """Sen kullanıcının kişisel asistanısın. SADECE NOT/ÖNERİ KOLEKSİYONU önerileri üret.
 
 HEDEF TARİH: {target_date}
+BUGÜN GÜNÜ: {current_day_tr}
 
 MEVCUT NOTLAR: {recent_notes}
 - Benzer önerileri tekrar etme
@@ -1787,11 +1792,29 @@ async def enhanced_ai_chat(request: EnhancedGeminiRequest):
             )
         service = EnhancedGeminiService(api_key=api_key)
 
+        # Inject current weekday context so the AI knows "today"
+        now = datetime.now(timezone.utc)
+        day_tr = _turkish_weekday_name(now.date())
+        day_en = now.strftime("%A")
+        day_context = f"Bugün günlerden: {day_tr} ({day_en})."
+
+        conversation_history = list(request.conversation_history or [])
+        conversation_history = [
+            msg for msg in conversation_history
+            if not str(msg.get("content", "")).startswith("Bugün günlerden:")
+        ]
+        conversation_history.append({
+            "role": "system",
+            "content": day_context,
+            "is_user": False,
+            "timestamp": now.isoformat()
+        })
+
         # Process chat with data request loop
         response_text, updated_history, suggestions, memories = service.chat(
             user_message=request.message,
             user_data=request.user_data,
-            conversation_history=request.conversation_history,
+            conversation_history=conversation_history,
             user_id=request.user_id
         )
 
@@ -2897,8 +2920,11 @@ async def _generate_daily_suggestions_for_user(
     context = _build_daily_suggestions_context(backup_data, target_date=resolved_date)
     context_json = json.dumps(context, ensure_ascii=False)
 
+    current_dt = context.get("current_datetime", {})
+    day_label = current_dt.get("day_of_week_tr") or current_dt.get("day_of_week") or "Bilinmiyor"
     message = (
         f"Hedef tarih: {resolved_date}.\n"
+        f"Bugün günlerden: {day_label}.\n"
         f"include_general: {'true' if include_general else 'false'}.\n"
         "Lütfen bu kurala uy ve sadece SUGGESTION, MEMORY ve gerekirse EDIT tag'larıyla yanıt ver."
     )
@@ -3036,6 +3062,7 @@ async def _generate_daily_suggestions_phased(
                 todays_events=context.get("todays_events", []),
                 recent_meals=context.get("recent_meals", []),
                 current_datetime=context.get("current_datetime", {}),
+                current_day_tr=context.get("current_datetime", {}).get("day_of_week_tr", ""),
                 ai_memories=context.get("ai_memories", []),
                 target_date=resolved_date
             )
@@ -3058,6 +3085,7 @@ async def _generate_daily_suggestions_phased(
             system_prompt=TASK_SUGGESTIONS_PROMPT.format(
                 pending_tasks=context.get("pending_tasks", []),
                 current_datetime=context.get("current_datetime", {}),
+                current_day_tr=context.get("current_datetime", {}).get("day_of_week_tr", ""),
                 ai_memories=context.get("ai_memories", []),
                 target_date=resolved_date
             )
@@ -3080,6 +3108,7 @@ async def _generate_daily_suggestions_phased(
             system_prompt=EVENT_SUGGESTIONS_PROMPT.format(
                 todays_events=context.get("todays_events", []),
                 current_datetime=context.get("current_datetime", {}),
+                current_day_tr=context.get("current_datetime", {}).get("day_of_week_tr", ""),
                 ai_memories=context.get("ai_memories", []),
                 target_date=resolved_date
             )
@@ -3102,6 +3131,7 @@ async def _generate_daily_suggestions_phased(
             system_prompt=HABIT_SUGGESTIONS_PROMPT.format(
                 existing_habits=context.get("existing_habits", []),
                 ai_memories=context.get("ai_memories", []),
+                current_day_tr=context.get("current_datetime", {}).get("day_of_week_tr", ""),
                 target_date=resolved_date
             )
         )
@@ -3124,6 +3154,7 @@ async def _generate_daily_suggestions_phased(
                 recent_notes=context.get("recent_notes", []),
                 existing_collections=context.get("existing_collections", []),
                 ai_memories=context.get("ai_memories", []),
+                current_day_tr=context.get("current_datetime", {}).get("day_of_week_tr", ""),
                 target_date=resolved_date
             )
         )
