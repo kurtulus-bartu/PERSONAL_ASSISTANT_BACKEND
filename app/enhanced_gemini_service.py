@@ -5,7 +5,7 @@ Implements data request loop and filtered data provision
 
 import os
 import json
-from typing import List, Dict, Optional, Any, Tuple
+from typing import List, Dict, Optional, Any, Tuple, Set
 import google.generativeai as genai
 
 from .ai_capabilities import (
@@ -16,6 +16,22 @@ from .ai_capabilities import (
     remove_tags_from_response
 )
 from .ai_data_provider import AIDataProvider
+
+_INVALID_MODELS: Set[str] = set()
+
+
+def _expand_model_candidates(models: List[str]) -> List[str]:
+    expanded: List[str] = []
+    for name in models:
+        if not name:
+            continue
+        if name not in expanded:
+            expanded.append(name)
+        if not name.startswith("models/"):
+            prefixed = f"models/{name}"
+            if prefixed not in expanded:
+                expanded.append(prefixed)
+    return expanded
 
 
 class EnhancedGeminiService:
@@ -36,8 +52,19 @@ class EnhancedGeminiService:
             raise ValueError("GEMINI_API_KEY gerekli")
 
         genai.configure(api_key=self.api_key)
-        model_name = os.getenv("GEMINI_MODEL", "gemini-3-flash")
-        self.model = genai.GenerativeModel(model_name)
+        model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        fallback_models = [
+            model_name,
+            "gemini-3.0-flash",
+            "gemini-3-flash",
+            "gemini-2.5-flash",
+            "gemini-2.0-flash",
+            "gemini-1.5-flash"
+        ]
+        self.model_candidates = _expand_model_candidates(fallback_models)
+        self.model_name = self.model_candidates[0]
+        self.model = genai.GenerativeModel(self.model_name)
+        self.invalid_models = _INVALID_MODELS
 
         # Cache the capabilities prompt
         self.capabilities_prompt = get_capabilities_prompt()
@@ -93,7 +120,7 @@ class EnhancedGeminiService:
 
             # Get AI response
             try:
-                response = self.model.generate_content(prompt)
+                response = self._generate_with_fallback(prompt)
                 ai_response = response.text
             except Exception as e:
                 ai_response = f"Üzgünüm, bir hata oluştu: {str(e)}"
@@ -135,7 +162,7 @@ class EnhancedGeminiService:
                 )
 
                 try:
-                    response = self.model.generate_content(final_prompt)
+                    response = self._generate_with_fallback(final_prompt)
                     ai_response = response.text
                 except Exception as e:
                     ai_response = f"Veri toplandı ancak analiz sırasında hata oluştu: {str(e)}"
@@ -185,10 +212,35 @@ class EnhancedGeminiService:
         prompt = "\n".join(prompt_parts).strip()
 
         try:
-            response = self.model.generate_content(prompt)
+            response = self._generate_with_fallback(prompt)
             return response.text or ""
         except Exception as e:
             return f"Üzgünüm, bir hata oluştu: {str(e)}"
+
+    def _is_model_not_found_error(self, error: Exception) -> bool:
+        message = str(error).lower()
+        return "not found" in message or "404" in message
+
+    def _generate_with_fallback(self, prompt: str):
+        last_error: Optional[Exception] = None
+        for candidate in self.model_candidates:
+            if candidate in self.invalid_models:
+                continue
+            if self.model_name != candidate:
+                self.model_name = candidate
+                self.model = genai.GenerativeModel(candidate)
+            try:
+                return self.model.generate_content(prompt)
+            except Exception as e:
+                last_error = e
+                if self._is_model_not_found_error(e):
+                    self.invalid_models.add(candidate)
+                    print(f"⚠️ Gemini model '{candidate}' not found. Falling back.")
+                    continue
+                raise
+        if last_error:
+            raise last_error
+        raise RuntimeError("No available Gemini model.")
 
     def _build_prompt(
         self,
@@ -363,7 +415,7 @@ Türkçe, açık ve anlaşılır şekilde yanıt ver.
 Asistan:"""
 
         try:
-            response = self.model.generate_content(prompt)
+            response = self._generate_with_fallback(prompt)
             return response.text
         except Exception as e:
             return f"Analiz hatası: {str(e)}"
