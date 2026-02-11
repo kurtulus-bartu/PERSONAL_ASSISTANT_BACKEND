@@ -6,6 +6,7 @@ Implements data request loop and filtered data provision
 import os
 import json
 from typing import List, Dict, Optional, Any, Tuple, Set
+from datetime import datetime, timezone
 import google.generativeai as genai
 
 from .ai_capabilities import (
@@ -32,6 +33,13 @@ def _expand_model_candidates(models: List[str]) -> List[str]:
             if prefixed not in expanded:
                 expanded.append(prefixed)
     return expanded
+
+
+def _current_day_line() -> str:
+    now = datetime.now(timezone.utc)
+    day_tr = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"][now.weekday()]
+    day_en = now.strftime("%A")
+    return f"BUGÜN GÜNÜ: {day_tr} ({day_en})"
 
 
 class EnhancedGeminiService:
@@ -265,6 +273,7 @@ class EnhancedGeminiService:
 
         # 1. System capabilities
         prompt_parts.append(capabilities_prompt)
+        prompt_parts.append(f"\n## ZAMAN\n{_current_day_line()}\n")
 
         # 2. Conversation history (last 10 messages)
         if conversation_history:
@@ -332,6 +341,7 @@ class EnhancedGeminiService:
 
         prompt_parts.append("# KULLANICI SORUSU\n\n")
         prompt_parts.append(f"{user_message}\n\n")
+        prompt_parts.append(f"# ZAMAN\n{_current_day_line()}\n\n")
 
         prompt_parts.append("# TOPLANAN VERİLER\n\n")
 

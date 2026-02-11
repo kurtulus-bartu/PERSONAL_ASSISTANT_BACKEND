@@ -1718,9 +1718,21 @@ async def ai_chat(request: GeminiRequest):
     try:
         service = get_gemini_service()
 
+        now = datetime.now(timezone.utc)
+        day_tr = _turkish_weekday_name(now.date())
+        day_en = now.strftime("%A")
+        context_payload = {
+            "context": request.context or "",
+            "today": {
+                "date": now.date().isoformat(),
+                "day_tr": day_tr,
+                "day_en": day_en
+            }
+        }
+
         response_text = service.financial_chat(
             message=request.message,
-            portfolio_context=request.context
+            portfolio_context=context_payload
         )
 
         return GeminiResponse(
